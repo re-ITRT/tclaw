@@ -6,8 +6,9 @@ import os, re, uuid
 from typing import TYPE_CHECKING
 
 from ...common.tool import Tool
-from ...common.events import Event, Topics
+from ...common.events import Topics
 from ...common.settings import WORKSPACE_DIR
+from ...common.conversation_logger import log_user
 
 if TYPE_CHECKING:
     from ...common.event_bus import EventBus
@@ -42,30 +43,41 @@ def add_unique_id(filename: str, unique_id: str) -> str:
 class UserInputTool(Tool):
     tool_id = "user_input"
 
-    async def handle_event(self, event: Event) -> None:
-        text = event.payload.get("text", "")
-        files = event.payload.get("files", [])
+    async def do_execute(self, payload: dict) -> None:
+        """LLM 调 user_input（兼容旧路径，走 handle_gateway_event）。"""
+        await self.handle_gateway_event(payload, payload.get("session_id", ""))
+
+    async def handle_gateway_event(self, data: dict, session_id: str) -> None:
+        """前端文本消息 → 触发 LLM。
+
+        Gateway 直接调此方法，不再自己 publish 到 EventBus。
+        """
+        text = data.get("content", "")
+        if text:
+            log_user(session_id, text)
+        files = data.get("files", [])
         saved_paths: list[str] = []
         if files:
             upload_dir = os.path.join(WORKSPACE_DIR, "uploads")
             os.makedirs(upload_dir, exist_ok=True)
             for f in files:
-                name, data = f.get("name", "unknown"), f.get("data", "")
+                name, file_data = f.get("name", "unknown"), f.get("data", "")
                 uid = uuid.uuid4().hex[:8]
                 dest = os.path.join(upload_dir, add_unique_id(name, uid))
                 import base64
                 try:
-                    raw = base64.b64decode(data)
+                    raw = base64.b64decode(file_data)
                     with open(dest, "wb") as fh:
                         fh.write(raw)
                 except Exception:
                     with open(dest, "w", encoding="utf-8") as fh:
-                        fh.write(data)
+                        fh.write(file_data)
                 saved_paths.append(dest)
-        llm_payload: dict = {"text": text}
+        llm_payload: dict = {"text": text, "source": self.tool_id}
         if saved_paths:
             llm_payload["file_path"] = saved_paths
-        await self.publish(Event(
-            topic=Topics.AGENT_MESSAGE_INCOMING, payload=llm_payload,
-            source=self.tool_id, session_id=event.session_id,
-        ))
+        await self.publish({
+            "topic": Topics.AGENT_MESSAGE_INCOMING,
+            "payload": llm_payload,
+            "session_id": session_id,
+        })

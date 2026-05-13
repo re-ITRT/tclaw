@@ -3,6 +3,8 @@
 两阶段加载：
   1. 菜单：提取 SKILL.md 头部的 name/description 注入 system prompt
   2. 完整加载：LLM 通过 load_skill tool 按需读取完整 SKILL.md
+
+技能目录：SKILLS_DIR（workspace/skills/），不混入其他项目的技能。
 """
 
 from __future__ import annotations
@@ -36,7 +38,6 @@ def discover_skills() -> list[str]:
 
 
 def get_skill_menu() -> list[dict[str, str]]:
-    """提取所有 skill 的菜单项：name(目录名), display(显示名), description。"""
     menu = []
     for name in discover_skills():
         path = os.path.join(SKILLS_DIR, name, "SKILL.md")
@@ -47,7 +48,7 @@ def get_skill_menu() -> list[dict[str, str]]:
             continue
         meta = _parse_frontmatter(content)
         menu.append({
-            "name": name,  # 目录名，唯一标识
+            "name": name,
             "display": meta.get("name", name),
             "description": meta.get("description", ""),
         })
@@ -55,7 +56,6 @@ def get_skill_menu() -> list[dict[str, str]]:
 
 
 def load_skill_content(folder: str) -> str:
-    """读取指定文件夹下的完整 SKILL.md。"""
     path = os.path.join(SKILLS_DIR, folder, "SKILL.md")
     try:
         with open(path, "r", encoding="utf-8") as f:

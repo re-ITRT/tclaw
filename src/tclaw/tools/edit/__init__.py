@@ -6,7 +6,8 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from ...common.tool import Tool
-from ...common.events import Event, Topics
+from ...common.settings import resolve_path
+from ...common.events import Topics
 
 if TYPE_CHECKING:
     from ...common.event_bus import EventBus
@@ -17,7 +18,7 @@ class EditTool(Tool):
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "文件路径"},
+            "path": {"type": "string", "description": "文件路径。相对路径以工作区为根，绝对路径直接使用"},
             "edits": {
                 "type": "array",
                 "items": {
@@ -34,21 +35,21 @@ class EditTool(Tool):
         "required": ["path", "edits"],
     }
 
-    async def handle_event(self, event: Event) -> None:
-        p = event.payload
+    async def do_execute(self, payload: dict) -> None:
+        p = payload
         path, edits = p.get("path", ""), p.get("edits", [])
         if not path:
-            return await self._result(event, {"tool": "edit", "status": "error", "error": "path required"})
+            return await self._result(event, {"status": "error", "error": "path required"})
         if not edits:
-            return await self._result(event, {"tool": "edit", "status": "error", "error": "edits required"})
-        ap = os.path.abspath(os.path.expanduser(path))
+            return await self._result(event, {"status": "error", "error": "edits required"})
+        ap = resolve_path(path)
         if not os.path.exists(ap):
-            return await self._result(event, {"tool": "edit", "status": "error", "error": f"Not found: {path}"})
+            return await self._result(event, {"status": "error", "error": f"Not found: {path}"})
         try:
             with open(ap, "r", encoding="utf-8") as f:
                 content = f.read()
         except Exception as e:
-            return await self._result(event, {"tool": "edit", "status": "error", "error": str(e)})
+            return await self._result(event, {"status": "error", "error": str(e)})
         norm = content.replace("\r\n", "\n").replace("\r", "\n")
         for e in edits:
             old = e.get("oldText", "").replace("\r\n", "\n").replace("\r", "\n")
@@ -57,20 +58,19 @@ class EditTool(Tool):
                 continue
             count = norm.count(old)
             if count == 0:
-                return await self._result(event, {"tool": "edit", "status": "error",
+                return await self._result(event, {"status": "error",
                     "error": f"Could not find exact text in {path}.\nFile:\n{content[:800]}"})
             if count > 1:
-                return await self._result(event, {"tool": "edit", "status": "error",
+                return await self._result(event, {"status": "error",
                     "error": f"Found {count} occurrences — must be unique"})
             norm = norm.replace(old, new, 1)
         try:
             with open(ap, "w", encoding="utf-8") as f:
                 f.write(norm)
         except Exception as e:
-            return await self._result(event, {"tool": "edit", "status": "error", "error": str(e)})
+            return await self._result(event, {"status": "error", "error": str(e)})
         msg = f"Successfully replaced {len(edits)} block(s) in {path}." if len(edits) > 1 else f"Successfully replaced text in {path}."
-        await self._result(event, {"tool": "edit", "status": "done", "path": ap, "edits_applied": len(edits), "message": msg})
+        await self._result(event, {"status": "done", "path": ap, "edits_applied": len(edits), "message": msg})
 
     async def _result(self, event, payload):
-        await self.publish(Event(topic=Topics.AGENT_TOOL_RESULT, payload=payload,
-                                 source=self.tool_id, session_id=event.session_id))
+        await self.reply_to_llm(payload, payload.get("session_id", ""))

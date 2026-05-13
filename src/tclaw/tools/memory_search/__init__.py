@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...common.tool import Tool
-from ...common.events import Event, Topics
+from ...common.events import Topics
 from ...backend.memory import init_db
 
 if TYPE_CHECKING:
@@ -29,9 +29,9 @@ class MemorySearchTool(Tool):
         "required": ["query"],
     }
 
-    async def handle_event(self, event: Event) -> None:
-        query = event.payload.get("query", "")
-        max_results = event.payload.get("max_results", 5)
+    async def do_execute(self, payload: dict) -> None:
+        query = payload.get("query", "")
+        max_results = payload.get("max_results", 5)
 
         if not query:
             return
@@ -69,9 +69,6 @@ class MemorySearchTool(Tool):
         except Exception as e:
             text = f"Memory search error: {e}"
 
-        await self.publish(Event(
-            topic=Topics.AGENT_TOOL_RESULT,
-            payload={"tool": "memory_search", "status": "done", "text": text},
-            source=self.tool_id,
-            session_id=event.session_id,
-        ))
+        await self.reply_to_llm({
+            "status": "done", "text": text,
+        }, payload.get("session_id", ""))

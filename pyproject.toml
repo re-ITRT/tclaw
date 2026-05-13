@@ -3,7 +3,13 @@ name = "tclaw"
 version = "0.1.0"
 description = "下一代 OpenClaw — AI Agent 网关与后端"
 requires-python = ">=3.11"
-dependencies = ["openai>=1.0.0"]
+dependencies = [
+    "openai>=1.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+    "websockets>=10.0",
+    "httpx>=0.24.0",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

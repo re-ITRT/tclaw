@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...common.tool import Tool
-from ...common.events import Event, Topics
+from ...common.events import Topics
 
 if TYPE_CHECKING:
     from ...common.event_bus import EventBus
@@ -27,30 +27,19 @@ class OutputTool(Tool):
         "required": ["mode"],
     }
 
-    async def handle_event(self, event: Event) -> None:
-        payload = event.payload
+    async def do_execute(self, payload: dict) -> None:
         mode = payload.get("mode", "text")
-        output = {"mode": mode}
+        sid = payload.get("session_id", "")
 
         if mode == "text":
-            output["text"] = payload.get("text", "")
+            await self.send_to_frontend(sid, {
+                "type": "assistant", "content": payload.get("text", ""),
+            })
         elif mode == "figure":
-            output["path"] = payload.get("path", "")
+            await self.send_to_frontend(sid, {
+                "type": "assistant", "mode": "figure", "path": payload.get("path", ""),
+            })
         elif mode == "end":
-            output["text"] = payload.get("text", "")
-
-        # 推送输出给前端
-        await self.publish(Event(
-            topic=Topics.AGENT_OUTPUT, payload=output,
-            source=self.tool_id, session_id=event.session_id,
-        ))
-
-        if mode == "end":
-            # end 模式不发 TOOL_RESULT，LLM 循环自然停止
             return
 
-        await self.publish(Event(
-            topic=Topics.AGENT_TOOL_RESULT,
-            payload={"tool": "output", "status": "done", **output},
-            source=self.tool_id, session_id=event.session_id,
-        ))
+        await self.reply_to_llm({"status": "done", "mode": mode}, sid)

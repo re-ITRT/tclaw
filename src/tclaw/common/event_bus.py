@@ -1,9 +1,11 @@
 """tclaw EventBus —— 事件总线核心。
 
-完整流水线：
-- 普通事件：路由到已注册的 handler
-- AGENT_MESSAGE_INCOMING / AGENT_TOOL_RESULT：走完整 LLM 循环
-  → ContextManager 构建上下文 → LLM → 调 tool 或回复
+事件格式：{"topic": str, "payload": dict}
+  - topic：路由用
+  - payload：所有数据都在这里，约定包含 session_id/source 等
+
+Tool：注册时自动订阅 tool.invoke.{tool_id}，LLM 通过 topic 路由
+Extension：自己订阅要监听的事件
 """
 
 from __future__ import annotations
@@ -14,78 +16,71 @@ import os
 from collections import defaultdict
 from typing import Any, Callable, Coroutine, TYPE_CHECKING
 
-from .events import Event, Topics
-
+from .events import Topics
+from .conversation_logger import log_assistant
 from .context_manager import ContextManager
 
 if TYPE_CHECKING:
     from .tool import Tool
+    from .extension import Extension
     from .llm_client import LLMClient
 
 logger = logging.getLogger("tclaw.event_bus")
 
-Handler = Callable[[Event], Coroutine[Any, Any, None]]
+Handler = Callable[[dict], Coroutine[Any, Any, None]]
 
-# ── LLM 循环要处理的事件类型 ───────────────────────────────
-_LLM_LOOP_TOPICS = {Topics.AGENT_MESSAGE_INCOMING, Topics.AGENT_TOOL_RESULT}
+_LLM_TRIGGER_TOPICS = {Topics.AGENT_MESSAGE_INCOMING, Topics.AGENT_TOOL_RESULT}
 
 
 class EventBus:
     """基于 asyncio 的事件总线，按 session 分队列。"""
 
     def __init__(self) -> None:
-        # ── 订阅表 ────────────────────────────────────────
         self._subscribers: dict[str, list[Handler]] = defaultdict(list)
-
-        # ── 已注册的工具 ───────────────────────────────────
         self._tools: dict[str, Tool] = {}
-
-        # ── 核心组件 ──────────────────────────────────────
+        self._extensions: dict[str, Extension] = {}
         self._llm: LLMClient | None = None
-
-        # 每个 session 独立的上下文管理器
-        self._global_context_mgr: ContextManager | None = None  # 模板
+        self._global_context_mgr: ContextManager | None = None
         self._session_context_mgrs: dict[str, ContextManager] = {}
-
-        # ── 按 session 分队列 ──────────────────────────────
-        self._session_queues: dict[str, asyncio.Queue[Event]] = {}
+        self.component_manager: Any = None  # 由 Gateway 注入
+        self._gateway: Any = None           # 由 Gateway 注入
+        self.frontend_service: Any = None   # 由 Gateway 注入
+        self._session_queues: dict[str, asyncio.Queue[dict]] = {}
         self._worker_tasks: dict[str, asyncio.Task] = {}
         self._dispatcher_task: asyncio.Task | None = None
         self._running = False
 
-    # ── 工具注册 ───────────────────────────────────────────
+    # ── Tool 注册 ───────────────────────────────────────────
 
     def register_tool(self, tool: Tool) -> None:
         self._tools[tool.tool_id] = tool
         for topic in tool.topics:
-            self.subscribe(topic, tool.handle_event)
+            self.subscribe(topic, tool._on_invoke)
         logger.info("tool registered: %s (topic=%s)", tool.tool_id, tool.topics)
 
     def unregister_tool(self, tool: Tool) -> None:
         self._tools.pop(tool.tool_id, None)
         for topic in tool.topics:
-            self.unsubscribe(topic, tool.handle_event)
-        logger.info("tool unregistered: %s", tool.tool_id)
+            self.unsubscribe(topic, tool._on_invoke)
+
+    @property
+    def registered_tools(self) -> dict[str, Tool]:
+        return dict(self._tools)
+
+    def get_tool(self, tool_id: str) -> Tool | None:
+        return self._tools.get(tool_id)
 
     def load_all_tools(self, tool_classes: list[type[Tool]]) -> None:
         for cls in tool_classes:
             cls(self)
 
     def reload_user_tools(self, tools_dir: str) -> list[str]:
-        """热加载 ~/tclaw/tools/ 下的用户工具。
-
-        扫描 tools_dir 下的子目录，导入并注册每个子目录中的 Tool 子类。
-        已有工具不会重复注册（同 tool_id 跳过）。
-        返回新注册的工具 ID 列表。
-        """
         import importlib, sys
-        from ..common.tool import Tool as _ToolBase
+        from .tool import Tool as _ToolBase
 
         new_ids: list[str] = []
-
         if not os.path.isdir(tools_dir):
             return new_ids
-
         sys.path.insert(0, tools_dir)
         try:
             for name in sorted(os.listdir(tools_dir)):
@@ -107,8 +102,24 @@ class EventBus:
                     new_ids.append(obj.tool_id)
         finally:
             sys.path.pop(0)
-
         return new_ids
+
+    # ── Extension 注册 ───────────────────────────────────────
+
+    def register_extension(self, ext: Extension) -> None:
+        self._extensions[ext.ext_id] = ext
+        logger.info("extension registered: %s", ext.ext_id)
+
+    @property
+    def registered_extensions(self) -> dict[str, Extension]:
+        return dict(self._extensions)
+
+    def get_extension(self, ext_id: str) -> Extension | None:
+        return self._extensions.get(ext_id)
+
+    def load_all_extensions(self, ext_classes: list[type[Extension]]) -> None:
+        for cls in ext_classes:
+            cls(self)
 
     # ── 核心组件 ───────────────────────────────────────────
 
@@ -120,17 +131,18 @@ class EventBus:
         self._llm = client
 
     def set_context_manager(self, mgr: ContextManager) -> None:
-        """设置默认上下文管理器（作为新 session 的模板）。"""
         self._global_context_mgr = mgr
 
     def _get_context_mgr(self, session_id: str) -> ContextManager | None:
-        """获取 session 的上下文管理器，不存在则从模板创建。"""
         if session_id in self._session_context_mgrs:
             return self._session_context_mgrs[session_id]
         if self._global_context_mgr is None:
             return None
-        # 为 session 创建独立的上下文管理器
-        mgr = ContextManager(system_prompt=self._global_context_mgr._system_prompt)
+        mgr = ContextManager(
+            system_prompt=self._global_context_mgr._system_prompt,
+            session_type="main",
+            session_id=session_id,
+        )
         self._session_context_mgrs[session_id] = mgr
         return mgr
 
@@ -147,15 +159,35 @@ class EventBus:
 
     # ── 发布 ───────────────────────────────────────────────
 
-    async def publish(self, event: Event) -> None:
-        sid = event.session_id or "__default__"
+    async def publish(self, event: dict) -> None:
+        """发布事件。event = {"topic": ..., "payload": {...}}
+
+        payload 约定包含 session_id、source 等字段。
+        """
+        if isinstance(event, list):
+            for e in event:
+                await self.publish(e)
+            return
+
+        topic = event.get("topic", "")
+        payload = event.get("payload", {})
+        # session_id 可能出现在 event 顶层或 payload 里
+        sid = payload.get("session_id") or event.get("session_id", "__default__")
+        event_with_defaults = dict(event)
+        if "session_id" not in event_with_defaults or not event_with_defaults.get("session_id"):
+            event_with_defaults["session_id"] = sid
+        # 确保 payload 里也有 session_id（下游 tools 从 payload 取）
+        if "session_id" not in event_with_defaults.get("payload", {}):
+            event_with_defaults.setdefault("payload", {})
+            event_with_defaults["payload"]["session_id"] = sid
+
         if sid not in self._session_queues:
             self._session_queues[sid] = asyncio.Queue()
             if self._running and sid not in self._worker_tasks:
                 self._worker_tasks[sid] = asyncio.create_task(
                     self._session_worker(sid)
                 )
-        await self._session_queues[sid].put(event)
+        await self._session_queues[sid].put(event_with_defaults)
 
     # ── 生命周期 ───────────────────────────────────────────
 
@@ -187,11 +219,6 @@ class EventBus:
             await asyncio.sleep(0.5)
 
     async def _session_worker(self, session_id: str) -> None:
-        """单个 session 的事件处理协程 —— 串行 FIFO。
-
-        对 LLM 循环事件（AGENT_MESSAGE_INCOMING / AGENT_TOOL_RESULT），
-        直接走完整流水线。其余事件路由到各自 handler。
-        """
         queue = self._session_queues.get(session_id)
 
         while self._running:
@@ -202,7 +229,40 @@ class EventBus:
                     break
                 continue
 
-            if event.topic in _LLM_LOOP_TOPICS:
+            topic = event.get("topic", "")
+
+            if topic in _LLM_TRIGGER_TOPICS:
+                if topic == Topics.AGENT_TOOL_RESULT:
+                    ctx = self._get_context_mgr(session_id)
+                    if ctx:
+                        payload = event.get("payload", {})
+                        tool_msg = {"role": "tool", "content": str(payload)}
+                        if ctx._last_tool_call_ids:
+                            tool_msg["tool_call_id"] = ctx._last_tool_call_ids.pop(0)
+                        await ctx.append(tool_msg)
+
+                # 有未完成的 tool_calls 时暂缓触发 LLM
+                ctx = self._get_context_mgr(session_id)
+                if ctx and ctx.history:
+                    pending = 0
+                    for m in reversed(ctx.history):
+                        role = m.get("role", "")
+                        if role == "tool":
+                            pending -= 1
+                        elif role == "assistant" and m.get("tool_calls"):
+                            pending += len(m["tool_calls"])
+                            if pending > 0:
+                                break
+                        else:
+                            break
+                    if pending > 0:
+                        if topic == Topics.AGENT_MESSAGE_INCOMING:
+                            await queue.put(event)
+                            logger.info("deferred: %d pending tool_calls", pending)
+                        else:
+                            logger.debug("tool result queued, %d still pending", pending)
+                        continue
+
                 await self._run_llm_loop(event)
             else:
                 await self._route_to_handlers(event)
@@ -219,54 +279,79 @@ class EventBus:
             specs.append(t.get_tool_spec())
         return specs
 
-    async def _run_llm_loop(self, event: Event) -> None:
-        """完整流水线：构建上下文 → LLM → 调 tool 或回复。"""
+    async def _run_llm_loop(self, event: dict) -> None:
+        """单次 LLM 推理。"""
         llm = self._llm
-        ctx = self._get_context_mgr(event.session_id)
+        sid = event.get("session_id", "") or event.get("payload", {}).get("session_id", "")
+        ctx = self._get_context_mgr(sid)
         if not llm or not ctx:
             return
 
         tool_specs = self._collect_tool_specs()
 
-        if event.topic == Topics.AGENT_MESSAGE_INCOMING:
+        if event.get("topic") == Topics.AGENT_MESSAGE_INCOMING:
+            payload = event.get("payload", {})
             context = await ctx.build_context(
                 new_event={
                     "role": "user",
-                    "content": event.payload.get("text", ""),
-                    "file_path": event.payload.get("file_path", []),
-                    "from_session_id": event.payload.get("from_session_id", ""),
+                    "content": payload.get("text", ""),
+                    "file_path": payload.get("file_path", []),
+                    "from_session_id": payload.get("from_session_id", ""),
                 },
                 tool_specs=tool_specs,
             )
         else:
-            context = await ctx.build_context(
-                tool_result=event.payload,
-                tool_specs=tool_specs,
-            )
+            context = await ctx.build_context(tool_specs=tool_specs)
 
-        # ── LLM 推理 ─────────────────────────────────
         response = await llm.chat(context.messages, tools=context.tools)
 
-        # ── 记录历史 ─────────────────────────────────
-        if response.text:
-            await ctx.append({"role": "assistant", "content": response.text})
+        if response.tool_call:
+            if response.assistant_message:
+                await ctx.append(response.assistant_message)
 
-        # ── 决定下一步 ───────────────────────────────
-        tool_name = response.tool_call['name']
+            display_text = response.text
+            if not display_text and response.assistant_message:
+                display_text = response.assistant_message.get("reasoning_content", "")
+            if display_text and self._gateway:
+                await self._gateway.send(sid, {
+                    "type": "assistant", "content": display_text,
+                })
 
-        await self.publish(Event(
-            topic=f"{Topics.TOOL_INVOKE}.{tool_name}",
-            payload=response.tool_call.get("args", {}),
-            source="agent_loop",
-            session_id=event.session_id,
-        ))
+            if response.tool_calls:
+                for tc in response.tool_calls:
+                    ctx._last_tool_call_ids.append(tc.get("id", ""))
+
+            for tc in response.tool_calls:
+                tool_name = tc["name"]
+                raw_args = tc.get("args", {})
+                if isinstance(raw_args, str):
+                    import json as _json
+                    try:
+                        raw_args = _json.loads(raw_args)
+                    except _json.JSONDecodeError:
+                        raw_args = {"_raw": raw_args}
+                await self.publish({
+                    "topic": f"{Topics.TOOL_INVOKE}.{tool_name}",
+                    "payload": raw_args,
+                    "session_id": sid,
+                })
+        else:
+            if response.assistant_message:
+                await ctx.append(response.assistant_message)
+            if response.text:
+                log_assistant(sid, response.text)
+                if self._gateway:
+                    await self._gateway.send(sid, {
+                        "type": "assistant", "content": response.text,
+                    })
 
     # ── 普通事件路由 ──────────────────────────────────────
 
-    async def _route_to_handlers(self, event: Event) -> None:
-        handlers = self._subscribers.get(event.topic, [])
+    async def _route_to_handlers(self, event: dict) -> None:
+        topic = event.get("topic", "")
+        handlers = self._subscribers.get(topic, [])
         if not handlers:
-            logger.warning("no handler for topic=%s", event.topic)
+            logger.warning("no handler for topic=%s", topic)
             return
         for handler in handlers:
             try:
@@ -274,5 +359,24 @@ class EventBus:
             except Exception:
                 logger.exception(
                     "handler %s failed for event topic=%s",
-                    handler.__name__, event.topic,
+                    handler.__name__, topic,
                 )
+
+    # ── 同步分发（用于 before/after 生命周期） ──────────
+
+    async def dispatch_sync(self, topic: str, payload: dict) -> bool:
+        """同步分发事件到所有订阅者（不入队列）。
+
+        订阅者可以修改 payload（如设置 cancelled=True）。
+        返回 True 表示事件被取消。
+        """
+        handlers = self._subscribers.get(topic, [])
+        if not handlers:
+            return False
+        event = {"topic": topic, "payload": payload}
+        for handler in handlers:
+            try:
+                await handler(event)
+            except Exception:
+                logger.exception("sync handler failed: %s", handler.__name__)
+        return payload.get("cancelled", False)

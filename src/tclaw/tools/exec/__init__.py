@@ -6,7 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from ...common.tool import Tool
-from ...common.events import Event, Topics
+from ...common.events import Topics
 
 if TYPE_CHECKING:
     from ...common.event_bus import EventBus
@@ -28,25 +28,24 @@ class ExecTool(Tool):
         "required": ["command"],
     }
 
-    async def handle_event(self, event: Event) -> None:
-        payload = event.payload
+    async def do_execute(self, payload: dict) -> None:
         command: str = payload.get("command", "")
         workdir: str | None = payload.get("workdir")
         timeout: float | None = payload.get("timeout")
         mode: str = payload.get("mode", "return")
         if not command:
             return
+        # default timeout: 60s if not specified
+        if timeout is None:
+            timeout = 60.0
         if mode == "no_return":
             asyncio.create_task(self._run_background(command, workdir))
-            result = {"tool": "exec", "mode": "no_return", "status": "spawned"}
+            result = {"mode": "no_return", "status": "spawned"}
         else:
             result = await self._run_and_return(command, workdir, timeout)
-        await self.publish(Event(
-            topic=Topics.AGENT_TOOL_RESULT, payload=result,
-            source=self.tool_id, session_id=event.session_id,
-        ))
+        await self.reply_to_llm(result, payload.get("session_id", ""))
 
-    async def _run_and_return(self, command, workdir, timeout):
+    async def _run_and_return(self, command: str, workdir: str | None, timeout: float | None) -> dict:
         import time
         start = time.monotonic()
         try:
@@ -57,17 +56,17 @@ class ExecTool(Tool):
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             except asyncio.TimeoutError:
                 proc.kill(); await proc.wait()
-                return {"tool": "exec", "mode": "return", "status": "timeout",
+                return {"mode": "return", "status": "timeout",
                         "stdout": "", "stderr": f"Timed out after {timeout}s",
                         "exit_code": -1,
                         "duration_ms": int((time.monotonic() - start) * 1000)}
-            return {"tool": "exec", "mode": "return", "status": "done",
+            return {"mode": "return", "status": "done",
                     "stdout": stdout.decode("utf-8", errors="replace"),
                     "stderr": stderr.decode("utf-8", errors="replace"),
                     "exit_code": proc.returncode,
                     "duration_ms": int((time.monotonic() - start) * 1000)}
         except FileNotFoundError:
-            return {"tool": "exec", "mode": "return", "status": "error",
+            return {"mode": "return", "status": "error",
                     "stdout": "", "stderr": f"Command not found: {command}",
                     "exit_code": -1,
                     "duration_ms": int((time.monotonic() - start) * 1000)}

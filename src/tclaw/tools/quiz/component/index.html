@@ -1,0 +1,56 @@
+<div id="quiz-app">
+  <style>
+    #quiz-app { font-family: system-ui, sans-serif; padding: 12px 16px; }
+    .quiz-question { font-size: 15px; font-weight: 600; margin-bottom: 10px; line-height: 1.5; }
+    .quiz-option { display: block; width: 100%; padding: 10px 14px; margin-bottom: 6px;
+      border: 1px solid #e0e0e0; border-radius: 8px; background: #fff;
+      cursor: pointer; text-align: left; font-size: 14px; transition: all 0.15s; }
+    .quiz-option:hover { background: #f0f7ff; border-color: #2196f3; }
+    .quiz-option:active { background: #e3f2fd; }
+    .quiz-option .label { font-weight: 500; }
+    .quiz-option .desc { color: #888; font-size: 12px; margin-top: 2px; }
+  </style>
+  <div class="quiz-question" id="quiz-question"></div>
+  <div id="quiz-options"></div>
+</div>
+<script>
+  var _cid = "", _sid = "";
+
+  window.addEventListener("message", function(e) {
+    if (e.data.type === "tclaw_component_init") {
+      _cid = e.data.component_id;
+      _sid = e.data.session_id;
+      render(e.data.initial_data);
+    }
+  });
+
+  function sendEvent(eventType, data) {
+    window.parent.postMessage({
+      type: "tclaw_component_event",
+      component_id: _cid,
+      session_id: _sid,
+      event: eventType,
+      data: data
+    }, "*");
+  }
+
+  function render(data) {
+    document.getElementById("quiz-question").textContent = data.question || data.prompt || "";
+    var list = document.getElementById("quiz-options");
+    list.innerHTML = "";
+    (data.options || []).forEach(function(opt) {
+      var btn = document.createElement("button");
+      btn.className = "quiz-option";
+      btn.innerHTML = '<span class="label">' + (opt.label || opt.value || "") + '</span>' +
+        (opt.desc ? '<div class="desc">' + opt.desc + '</div>' : "");
+      btn.onclick = function() {
+        sendEvent("on_select", {
+          value: opt.value || opt.label,
+          label: opt.label || opt.value
+        });
+      };
+      list.appendChild(btn);
+    });
+  }
+</script>
+</div>

@@ -14,6 +14,11 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Config
+config.json
+workspace/memory/index.db
+workspace/logs/
+
 # Environment
 .env
 .env.local
