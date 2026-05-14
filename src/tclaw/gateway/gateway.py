@@ -97,6 +97,9 @@ class Gateway:
         elif msg_type == "reset":
             self._handle_reset(session_id)
 
+        elif msg_type == "compact":
+            await self._handle_compact(data, session_id)
+
         else:
             logger.warning("unknown message type: %s", msg_type)
 
@@ -150,6 +153,16 @@ class Gateway:
         self.frontend.delete_session_events(session_id)
         self.frontend.cleanup_session(session_id)
         logger.info("session reset: %s", session_id)
+
+    async def _handle_compact(self, data: dict, session_id: str) -> None:
+        """触发上下文压缩。"""
+        prompt = data.get("prompt", "") if isinstance(data, dict) else ""
+        await self.bus.publish({
+            "topic": "extension.compactor.compact",
+            "payload": {"session_id": session_id, "prompt": prompt},
+            "session_id": session_id,
+        })
+        logger.info("compact requested: %s", session_id)
 
     # ── 前端辅助 ─────────────────────────────────────────
 

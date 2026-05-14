@@ -196,6 +196,10 @@ class EventBus:
             return
         self._running = True
         self._dispatcher_task = asyncio.create_task(self._dispatcher_loop())
+        # 启动定时任务后台循环
+        sched = self._tools.get("scheduler")
+        if sched:
+            await sched.start_loop()
         logger.info("event bus started")
 
     async def stop(self) -> None:

@@ -119,10 +119,49 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
       <span id="sessionStatus" style="font-size:12px;color:#888;white-space:nowrap"></span>
     </div>
     <div id="chat" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px"></div>
+    <!-- 工具面板 -->
+    <div id="toolsPanel" style="display:none;padding:12px 16px;border-top:1px solid #e0e0e0;background:#fafafa;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="resetSession()" style="padding:8px 16px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:13px">↻ 重置会话</button>
+        <button onclick="showCompactDialog()" style="padding:8px 16px;border:1px solid #ff9800;border-radius:6px;cursor:pointer;background:#fff;font-size:13px">📦 压缩上下文</button>
+        <button onclick="showScheduler()" style="padding:8px 16px;border:1px solid #2196f3;border-radius:6px;cursor:pointer;background:#e3f2fd;color:#1565c0;font-size:13px">⏰ 定时任务</button>
+      </div>
+      <!-- 压缩对话框 -->
+      <div id="compactDialog" style="display:none;flex-direction:column;gap:6px">
+        <textarea id="compactPrompt" placeholder="可选：输入压缩方向，如“请专注于API设计”" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:none;box-sizing:border-box;font-family:inherit" rows="2"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button onclick="hideCompactDialog()" style="padding:6px 14px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:12px">取消</button>
+          <button onclick="doCompact()" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;background:#ff9800;color:#fff;font-size:12px">📦 执行压缩</button>
+        </div>
+      </div>
+      <!-- 定时任务对话框 -->
+      <div id="schedulerDialog" style="display:none;flex-direction:column;gap:8px;border-top:1px solid #e0e0e0;padding-top:8px">
+        <div style="font-size:13px;font-weight:600;color:#333">⏰ 定时任务</div>
+        <div id="schedulerList" style="font-size:12px;color:#666;display:flex;flex-direction:column;gap:4px"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input id="schedName" placeholder="任务名" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px">
+        </div>
+        <input id="schedMsg" placeholder="消息内容" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <select id="schedType" onchange="toggleSchedType()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;background:#fff">
+            <option value="at">指定时间</option>
+            <option value="every">每隔</option>
+            <option value="cron">Cron</option>
+          </select>
+          <input id="schedAt" type="datetime-local" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px">
+          <input id="schedEvery" placeholder="毫秒(如 60000)" style="display:none;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;width:120px">
+          <input id="schedCron" placeholder="表达式(如 0 */5 *)" style="display:none;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;width:160px">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button onclick="document.getElementById('schedulerDialog').style.display='none'" style="padding:6px 14px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:12px">关闭</button>
+          <button onclick="addSchedulerTask()" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;background:#2196f3;color:#fff;font-size:12px">+ 添加任务</button>
+        </div>
+      </div>
+    </div>
     <div style="padding:12px 16px;border-top:1px solid #e0e0e0;background:#fff;display:flex;gap:8px">
       <input id="msgInput" placeholder="输入消息..." onkeydown="if(event.key==='Enter') send()" disabled style="flex:1;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:14px" />
       <button id="sendBtn" onclick="send()" disabled style="padding:10px 20px;border:none;border-radius:8px;cursor:pointer;background:#2196f3;color:#fff;font-size:14px">发送</button>
-      <button id="resetBtn" onclick="resetSession()" style="padding:10px 14px;border:1px solid #ddd;border-radius:8px;cursor:pointer;background:#fff;font-size:14px">↻ 重置</button>
+      <button onclick="toggleTools()" style="padding:10px 14px;border:1px solid #888;border-radius:8px;cursor:pointer;background:#fff;font-size:14px;line-height:1">⚙</button>
     </div>
   </div>
 
@@ -511,9 +550,9 @@ function send() {
   var input = document.getElementById('msgInput');
   var text = input.value.trim();
   if (!text || !ws) return;
+  input.value = '';
   ws.send(JSON.stringify({ type: 'text', content: text }));
   addMsg('user', text);
-  input.value = '';
 }
 
 function addMsg(role, text, asHtml) {
@@ -755,6 +794,102 @@ function resetSession() {
   ws.send(JSON.stringify({type: "reset"}));
   document.getElementById("chat").innerHTML = "";
   addMsg("system", "\u4f1a\u8bdd\u5df2\u91cd\u7f6e");
+}
+
+function toggleTools() {
+  var panel = document.getElementById('toolsPanel');
+  var shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : 'flex';
+  if (!shown) document.getElementById('compactDialog').style.display = 'none';
+}
+
+function showCompactDialog() {
+  document.getElementById('compactDialog').style.display = 'flex';
+  document.getElementById('compactPrompt').value = '';
+  document.getElementById('compactPrompt').focus();
+}
+
+function hideCompactDialog() {
+  document.getElementById('compactDialog').style.display = 'none';
+}
+
+function doCompact() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  var prompt = document.getElementById('compactPrompt').value.trim();
+  ws.send(JSON.stringify({type: "compact", prompt: prompt}));
+  addMsg("system", "\u5df2\u53d1\u8d77\u4e0a\u4e0b\u6587\u538b\u7f29...");
+  hideCompactDialog();
+  document.getElementById('toolsPanel').style.display = 'none';
+}
+
+// ── \u5b9a\u65f6\u4efb\u52a1 ──────────────────────────────────────────
+function showScheduler() {
+  document.getElementById('schedulerDialog').style.display = 'flex';
+  refreshSchedulerList();
+
+}
+
+function toggleSchedType() {
+  var t = document.getElementById('schedType').value;
+  document.getElementById('schedAt').style.display = t === 'at' ? 'inline-block' : 'none';
+  document.getElementById('schedEvery').style.display = t === 'every' ? 'inline-block' : 'none';
+  document.getElementById('schedCron').style.display = t === 'cron' ? 'inline-block' : 'none';
+}
+
+function addSchedulerTask() {
+  var name = document.getElementById('schedName').value.trim() || 'task-' + Date.now().toString(36);
+  var target = sessionId;
+  var msg = document.getElementById('schedMsg').value.trim();
+  if (!msg) { alert('\u8bf7\u8f93\u5165\u6d88\u606f\u5185\u5bb9'); return; }
+  var type = document.getElementById('schedType').value;
+  var schedule = {};
+  if (type === 'at') {
+    var dt = document.getElementById('schedAt').value;
+    if (!dt) { alert('\u8bf7\u9009\u62e9\u65f6\u95f4'); return; }
+    schedule = { kind: 'at', at: new Date(dt).getTime() };
+  } else if (type === 'every') {
+    var ms = parseInt(document.getElementById('schedEvery').value);
+    if (!ms || ms < 1000) { alert('\u95f4\u9694\u81f3\u5c11 1000ms'); return; }
+    schedule = { kind: 'every', every_ms: ms };
+  } else if (type === 'cron') {
+    var expr = document.getElementById('schedCron').value.trim();
+    if (!expr) { alert('\u8bf7\u8f93\u5165 cron \u8868\u8fbe\u5f0f'); return; }
+    schedule = { kind: 'cron', expr: expr };
+  }
+  fetch('/api/scheduler', {
+    method: 'POST', headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ id: name, name: name, target_session: target, message: msg, schedule: schedule })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === 'ok') {
+      refreshSchedulerList();
+      document.getElementById('schedName').value = '';
+      document.getElementById('schedMsg').value = '';
+    }
+  }).catch(function() { alert('\u6dfb\u52a0\u5931\u8d25'); });
+}
+
+function deleteSchedulerTask(id) {
+  if (!confirm('\u5220\u9664\u5b9a\u65f6\u4efb\u52a1 "' + id + '"?')) return;
+  fetch('/api/scheduler/' + encodeURIComponent(id), { method: 'DELETE' })
+    .then(function() { refreshSchedulerList(); })
+    .catch(function() {});
+}
+
+function refreshSchedulerList() {
+  fetch('/api/scheduler').then(function(r) { return r.json(); }).then(function(d) {
+    var el = document.getElementById('schedulerList');
+    var tasks = d.tasks || [];
+    if (!tasks.length) { el.innerHTML = '<p style="color:#aaa;font-size:12px">\u6682\u65e0\u5b9a\u65f6\u4efb\u52a1</p>'; return; }
+    el.innerHTML = tasks.map(function(t) {
+      var info = t.schedule.kind === 'at' ? new Date(t.schedule.at).toLocaleString() :
+        t.schedule.kind === 'every' ? '\u6bcf ' + (t.schedule.every_ms/1000) + 's' :
+        t.schedule.kind === 'cron' ? t.schedule.expr : '?';
+      return '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:#fff;border:1px solid #eee;border-radius:4px">' +
+        '<span style="flex:1;font-size:12px;color:' + (t.disabled ? '#aaa' : '#333') + '">' +
+        '<strong>' + t.name + '</strong> ' + info + ' \u2192 ' + t.target_session + '</span>' +
+        '<button onclick="deleteSchedulerTask(\'' + t.id + '\')\" style="padding:2px 8px;border:1px solid #e57373;border-radius:4px;cursor:pointer;background:#fff;color:#e53935;font-size:11px">\u2715</button></div>';
+    }).join('');
+  }).catch(function() {});
 }
 
 window.addEventListener('message', function(e) {

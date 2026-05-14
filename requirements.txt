@@ -19,3 +19,4 @@ sse-starlette==3.3.2
 starlette==0.52.1
 uvicorn==0.42.0
 websockets==16.0
+croniter>=6.0.0

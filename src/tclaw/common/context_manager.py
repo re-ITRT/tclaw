@@ -304,16 +304,64 @@ class ContextManager:
         self._history = truncated
         return before - len(self._history)
 
-    async def compact(self, llm: Any) -> str:
+    async def compact(self, llm: Any, keep_recent: int = 20000, user_prompt: str = "") -> str:
+        """压缩早期对话历史，保留最近的消息。
+
+        Parameters
+        ----------
+        llm : LLMClient
+        keep_recent : int
+            保留的最近 token 数（估算），之前的消息被压缩。
+
+        Returns
+        -------
+        str — 生成的摘要
+        """
         if not self._history:
             return ""
 
+        # 1. 保留最近消息，找到截断点
+        # 粗略估算：1 token ≈ 2 chars，每消息额外 50 token 开销
+        recent_tokens = 0
+        split_idx = len(self._history)
+        for i in range(len(self._history) - 1, -1, -1):
+            m = self._history[i]
+            text = str(m.get("content", ""))
+            tool_calls = m.get("tool_calls")
+            tokens = len(text) // 2 + 50
+            if tool_calls:
+                tokens += len(tool_calls) * 30
+            recent_tokens += tokens
+            if recent_tokens > keep_recent:
+                split_idx = i + 1
+                break
+
+        to_compress = self._history[:split_idx]
+        to_keep = self._history[split_idx:]
+
+        if not to_compress:
+            return ""  # 没有需要压缩的
+
+        # 2. 归档原始历史
+        import json, os
+        from datetime import datetime
+        from .settings import SESSION_DIR
+        archive_dir = os.path.join(SESSION_DIR, "archives")
+        os.makedirs(archive_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_path = os.path.join(archive_dir, f"{self._session_id}_{ts}.json")
+        with open(archive_path, "w", encoding="utf-8") as f:
+            json.dump({"prelude": self._prelude, "history": to_compress}, f,
+                      ensure_ascii=False, indent=2)
+
+        # 3. 构建压缩摘要
         history_text = ""
-        for m in self._history:
+        for m in to_compress:
             role = m.get("role", "unknown")
             content = str(m.get("content", ""))[:2000]
             if m.get("tool_calls"):
-                content += f" [called tool: {m['tool_calls'][0].get('function', {}).get('name', '?')}]"
+                tc_names = [tc.get("function", {}).get("name", "?") for tc in m["tool_calls"]]
+                content += f" [called tools: {', '.join(tc_names)}]"
             history_text += f"[{role}] {content}\n\n"
 
         prelude_text = ""
@@ -326,16 +374,23 @@ class ContextManager:
             "输出精炼的摘要，用对话口吻，保留所有文件名、路径、ID、数值。\n\n"
             f"## 前置上下文（保留）\n{prelude_text}\n"
             f"## 待压缩的对话\n{history_text}\n"
-            "## 压缩结果\n"
         )
+        if user_prompt:
+            prompt += f"## 用户指示\n{user_prompt}\n\n"
+        prompt += "## 压缩结果\n"
 
         response = await llm.chat([
-            {"role": "system", "content": "你是对话压缩专家。压缩对话，保留关键信息。"},
+            {"role": "system", "content": "你是对话压缩专家。保留关键信息，输出简洁摘要。"},
             {"role": "user", "content": prompt},
         ])
 
         summary = response.text.strip() or "(压缩摘要为空)"
+
+        # 4. 替换历史：摘要 + Understood + 保留的最近消息
         self._history = [
-            {"role": "system", "content": f"## 历史摘要\n\n{summary}"},
-        ]
+            {"role": "system", "content": f"## 对话摘要\n\n{summary}"},
+            {"role": "assistant", "content": "Understood, continue."},
+        ] + to_keep
+
+        self._save()
         return summary
