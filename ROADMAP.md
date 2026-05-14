@@ -1,6 +1,6 @@
 # tclaw 项目历程
 
-> **v0.2 — Gateway + Frontend + Extension 系统**
+> **v0.2 — Gateway + Frontend + Multi-session**
 
 ---
 
@@ -8,98 +8,81 @@
 
 ### 基础设施
 - 项目骨架 + uv 虚拟环境 + Git
-- `pyproject.toml` + `requirements.txt`
-- `settings.py` — 全局配置常量（环境变量驱动）
-- 文件日志（DEBUG）+ 终端日志（INFO），按时间戳分文件
+- `settings.py` — 全局配置常量
+- 文件日志（DEBUG）+ 终端日志（INFO）
+- systemd 托管（开机自启，崩溃自动重启）
 
 ### 事件系统
 - 事件格式统一为 `{"topic": str, "payload": dict}`
-- `Topics` 常量类集中管理所有 topic
+- `Topics` 常量类集中管理
 - `EventBus` — 按 session 分队列，异步处理
-- session_id 智能路由：同时支持事件顶层和 payload 内两种写法
+- `dispatch_sync()` — 同步分发 before/after 事件
 
 ### Executable 执行管道
 - `Executable` 基类 — Tool 和 Extension 共用
-- 统一 `execute(payload)` 入口，带完整生命周期
+- `execute(payload)` 统一入口：before → do_execute → after
+- 前端通信方法：`send_to_frontend()` / `register_component()` 等
 
-```python
-execute(payload)
-  ├── check cancelled
-  ├── publish({topic}:before)  → 订阅者可取消
-  ├── check cancelled
-  ├── do_execute(payload)      → 实际逻辑
-  └── publish({topic}:after)   → 订阅者做后续处理
-```
-
-- `dispatch_sync()` — 同步分发 before/after 事件（不入队列）
-- Extension 和 Tool 共用 `send_to_frontend()`、`register_component()` 等方法
-
-### Tool 系统
-- `Tool` 基类 — 继承 `Executable`，额外提供 TOOL.md、LLM function-calling spec
-- 每个工具占一个文件夹（`__init__.py` + `TOOL.md`）
-- 自动扫描发现：`src/tclaw/tools/` 目录
-
+### Tool 系统（12 个）
 | 工具 | 功能 |
 |------|------|
-| `exec` | CLI 执行（return / no_return，默认 60s 超时） |
-| `read` | 文件阅读（offset/limit/截断/图片） |
-| `write` | 文件写入（覆盖/追加） |
-| `edit` | 文件精确替换 |
-| `output` | 输出给用户：`text` / `figure` / `end` 三种模式 |
+| `exec` | CLI 执行（默认 60s 超时） |
+| `read` | 文件阅读（支持偏移/截断/图片） |
+| `write` / `edit` | 文件写入 / 精确替换 |
+| `output` | 输出给用户：text / figure / end |
 | `user_input` | 用户输入转发 + 文件上传 |
-| `memory_search` | FTS5 全文搜索记忆 |
-| `memory_get` | 读取记忆文件 |
-| `load_skill` | 按需加载完整 SKILL.md |
-| `quiz` | 交互式选择题（blocking / non_blocking 模式） |
+| `memory_search` / `memory_get` | 记忆搜索 / 读取 |
+| `load_skill` | 按需加载 SKILL.md |
+| `quiz` | 交互式选择题 |
+| `workspace_manager` | 管理会话：创建/多开/复制/列举 |
+| `cross_session` | 跨 session 通信（非阻塞） |
 
 ### Extension 系统
-- `Extension` 基类 — 继承 `Executable`，不暴露给 LLM
-- 纯事件驱动：在 `__init__` 里订阅感兴趣的事件
-- 自动扫描发现：`src/tclaw/extensions/` 目录
-- 内置示例：`sample`（监听 exec:after）、`output_plugin`（监听 output:after）
+- `Extension` 基类 — 不暴露给 LLM
+- 自动发现 `src/tclaw/extensions/`
+- 内置示例：`sample`（监听 exec:after）
+
+### 多 session 系统
+- `sub_workspace.py` — 子工作区管理模块
+- **独立工作区** `sub:{name}`：每 session 全套记忆文件
+- **多开（fork）**：`.forks.json` 映射，共享记忆，不占磁盘
+- **复制（clone）**：完全拷贝独立工作区
+- **模板（template）**：导出记忆 + 技能配置
+- `ContextManager` 根据 `session_id` 自动加载对应记忆
 
 ### Gateway（Phase 1）
-- **FastAPI + WebSocket** — ws://host:port/ws/{session_id}
-- **SessionManager** — 连接生命周期、断线重连、过期清理
-- **ComponentManager** — 注册/等待/回调/销毁组件
-- **FrontendService** — 统一前端通信层
-- 消息路由：用户文本→LLM / tool_event→Tool 直调 / component_callback→组件
+- FastAPI + WebSocket（`/ws/{session_id}`）
+- SessionManager / ComponentManager / FrontendService
+- 前端事件持久化到 SQLite（events.db）
+- 断线重连全量回放
 
 ### 前端
-- 两页设计：登录页（仅 WS URL）→ 连接后主界面
-- session 选择器：下拉切换会话、新建会话、删除会话（main 不可删）
-- 侧边栏布局：聊天 / 概览 / 实例 / Skills 标签切换
-- 工具卡片显示（tool_start / tool_result）
-- 动态组件（quiz 等 iframe 组件 + built-in select/confirm/input）
-- 会话恢复：WS 重连时只恢复人话，跳过 tool 内部交互
-- 日志面板 + session 概览
+- 登录页（仅 WS URL）→ 侧边栏主界面
+- 侧边栏：聊天 / 会话 / Skills / Tools / Extensions
+- 会话管理：新建 / 连接 / 多开 / 复制 / 模板 / 删除
+- 聊天 session 选择器（main + sub + fork）
+- Markdown 渲染 + Skills 开关/展开
+- 日志面板
 
 ### 上下文管理
-- `ContextManager` — SOUL/身份/用户/环境/记忆/技能 → system prompt
-- 环境信息自动注入：工作区路径、会话目录、LLM 模型等
-- `_prelude` + `_history` 双层结构
-- `compact(llm)` — LLM 压缩历史
-- 会话持久化 `logs/sessions/{id}.json` + 对话记录 `logs/conversations/`
-
-### 记忆系统
-- SQLite 索引（meta / files / chunks / fts5）
-- 自动注入今日 + 昨日每日笔记
-
-### LLM 客户端
-- OpenAI 兼容 API（DeepSeek 默认）
-- `finish_reason="length"` 自动续写
-- 多 tool_calls 并行处理 + pending 检查
+- `ContextManager` — SOUL/身份/用户/环境/记忆/技能注入
+- 环境信息自动注入（工作区路径、LLM 模型等）
+- 技能菜单放对话后、最靠近 LLM
+- 会话持久化 + 对话记录
 
 ### 技能体系
-- 两阶段加载：YAML 菜单 → `load_skill` 读完整 SKILL.md
-- 标准目录结构
+- 两阶段加载：YAML 菜单 → `load_skill` 读完整内容
+- 7 个预装技能（兼容 OpenClaw AgentSkills 格式）
+- 前端 toggle 开关，禁用不出现在 LLM 上下文
 
-### 网络服务
-- FileBrowser（:8080）+ SSH 隧道转发 Gateway（:18792）
+### 记忆系统
+- SQLite 索引（FTS5 全文搜索）
+- 自动注入今日 + 昨日每日笔记
+- 子工作区独立记忆目录
 
 ---
 
-## 🚧 进行中 / 待打磨
+## 🚧 待打磨
 
 - 侧边栏各标签具体内容
 - 动态组件 iframe 高度自适应
@@ -115,11 +98,8 @@ execute(payload)
 - cancel 取消推理
 - 会话存储（文件 → 数据库）
 - 用户管理
-- `SearchTool` / `FetchTool` / `ProcessTool`
-- 外部队列（Redis / NATS）
-- 可观测性
-- 安全 / 沙箱
+- 更多工具
 
 ---
 
-*最后更新：2026-05-13 · v0.2*
+*最后更新：2026-05-14 · v0.2*
