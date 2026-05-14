@@ -29,16 +29,16 @@ class WriteTool(Tool):
         p = payload
         path, content, append = p.get("path", ""), p.get("content", ""), p.get("append", False)
         if not path:
-            return await self._result(event, {"status": "error", "error": "path required"})
+            return await self._result(payload, {"status": "error", "error": "path required"})
         ap = resolve_path(path)
         try:
             os.makedirs(os.path.dirname(ap), exist_ok=True)
             with open(ap, "a" if append else "w", encoding="utf-8") as f:
                 f.write(content)
-            await self._result(event, {"status": "done", "path": ap,
+            await self._result(payload, {"status": "done", "path": ap,
                                         "bytes_written": len(content.encode("utf-8")), "append": append})
         except Exception as e:
-            await self._result(event, {"status": "error", "error": str(e)})
+            await self._result(payload, {"status": "error", "error": str(e)})
 
-    async def _result(self, event, payload):
+    async def _result(self, _, payload):
         await self.reply_to_llm(payload, payload.get("session_id", ""))

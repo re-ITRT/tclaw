@@ -15,6 +15,27 @@ import re
 from .settings import SKILLS_DIR
 
 
+# ── 技能开关状态（内存，服务重启重置） ─────────────────
+
+_disabled_skills: set[str] = set()
+
+
+def disable_skill(name: str) -> None:
+    _disabled_skills.add(name)
+
+
+def enable_skill(name: str) -> None:
+    _disabled_skills.discard(name)
+
+
+def is_skill_enabled(name: str) -> bool:
+    return name not in _disabled_skills
+
+
+def get_enabled_skills() -> list[str]:
+    return [s for s in discover_skills() if s not in _disabled_skills]
+
+
 def _parse_frontmatter(content: str) -> dict[str, str]:
     m = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
     if not m:
@@ -38,8 +59,12 @@ def discover_skills() -> list[str]:
 
 
 def get_skill_menu() -> list[dict[str, str]]:
+    """返回启用的技能菜单：name + display + 完整正文。"""
+    import re
     menu = []
     for name in discover_skills():
+        if name in _disabled_skills:
+            continue
         path = os.path.join(SKILLS_DIR, name, "SKILL.md")
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -47,10 +72,13 @@ def get_skill_menu() -> list[dict[str, str]]:
         except Exception:
             continue
         meta = _parse_frontmatter(content)
+        # 去掉 YAML front matter 取正文
+        body = re.sub(r"^---.*?---\n*", "", content, count=1, flags=re.DOTALL).strip()
         menu.append({
             "name": name,
             "display": meta.get("name", name),
             "description": meta.get("description", ""),
+            "body": body,
         })
     return menu
 

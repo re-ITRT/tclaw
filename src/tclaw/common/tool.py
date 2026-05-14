@@ -99,14 +99,23 @@ class Tool(Executable, ABC):
     # ── EventBus 回调 — 提取 payload 传给 execute() ────
 
     async def _on_invoke(self, event: dict) -> None:
-        """EventBus 收到 tool.invoke.{id} 时的入口。
-
-        提取 payload 传给 Executable.execute() 管道。
-        """
+        """EventBus 收到 tool.invoke.{id} 时的入口。"""
         payload = event.get("payload", {})
+        sid = payload.get("session_id") or event.get("session_id", "")
         if not payload.get("session_id"):
-            payload["session_id"] = event.get("session_id", "")
+            payload["session_id"] = sid
+
+        # 通知前端工具开始执行
+        await self.send_to_frontend(sid, {
+            "type": "tool_start", "tool_id": self.tool_id, "args": payload,
+        })
+
         await self.execute(payload)
+
+        # 通知前端工具执行完毕
+        await self.send_to_frontend(sid, {
+            "type": "tool_result", "tool_id": self.tool_id, "status": "done",
+        })
 
     # ── 执行 ─────────────────────────────────────────────
 

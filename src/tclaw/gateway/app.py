@@ -140,6 +140,7 @@ def create_app(gateway: Gateway) -> FastAPI:
         if ctx:
             await ctx.clear()
         gateway.cleanup_session(session_id)
+        gateway.frontend.delete_session_events(session_id)
         return {"status": "cleared", "session_id": session_id}
 
     @app.get("/api/tools")
@@ -175,20 +176,37 @@ def create_app(gateway: Gateway) -> FastAPI:
 
     @app.get("/api/skills")
     async def api_skills():
+        """列出所有技能及开关状态。"""
         import os
         from tclaw.common.settings import SKILLS_DIR
+        from tclaw.common.skills import is_skill_enabled, discover_skills
         skills = []
-        if os.path.isdir(SKILLS_DIR):
-            for name in sorted(os.listdir(SKILLS_DIR)):
-                skill_dir = os.path.join(SKILLS_DIR, name)
-                if os.path.isdir(skill_dir):
-                    md_path = os.path.join(skill_dir, "SKILL.md")
-                    desc = ""
-                    if os.path.isfile(md_path):
-                        with open(md_path, "r", encoding="utf-8") as f:
-                            desc = f.read().strip()[:120]
-                    skills.append({"id": name, "description": desc})
+        for name in discover_skills():
+            md_path = os.path.join(SKILLS_DIR, name, "SKILL.md")
+            desc = ""
+            if os.path.isfile(md_path):
+                with open(md_path, "r", encoding="utf-8") as f:
+                    desc = f.read().strip()
+            skills.append({
+                "id": name,
+                "description": desc,
+                "enabled": is_skill_enabled(name),
+            })
         return {"skills": skills}
+
+    @app.post("/api/skills/{name}/toggle")
+    async def api_toggle_skill(name: str):
+        """切换技能的启用/禁用状态。"""
+        from tclaw.common.skills import is_skill_enabled, enable_skill, disable_skill, discover_skills
+        if name not in discover_skills():
+            return {"status": "error", "message": f"skill not found: {name}"}
+        if is_skill_enabled(name):
+            disable_skill(name)
+            enabled = False
+        else:
+            enable_skill(name)
+            enabled = True
+        return {"status": "ok", "skill": name, "enabled": enabled}
 
     @app.get("/s/{filename:path}")
     async def serve_static(filename: str):

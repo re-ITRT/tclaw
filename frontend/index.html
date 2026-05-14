@@ -224,9 +224,51 @@ function loadSkills() {
     var skills = data.skills || [];
     if (!skills.length) { el.innerHTML = '<p style="color:#888">暂无技能</p>'; return; }
     el.innerHTML = skills.map(function(s) {
-      return '<div style="background:#fff;padding:14px 16px;border-radius:8px;border:1px solid #e0e0e0"><strong style="font-size:14px;color:#333">' + s.id + '</strong><p style="margin:4px 0 0;font-size:13px;color:#888">' + (s.description || '') + '</p></div>';
+      var checked = s.enabled ? 'checked' : '';
+      var shortDesc = (s.description || '').split('\\n')[0].slice(0, 80);
+      return '<div class="skill-card" style="background:#fff;border-radius:8px;border:1px solid #e0e0e0;overflow:hidden;flex-shrink:0">' +
+        '<div class="skill-header" style="padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;user-select:none">' +
+        '<div style="flex:1;min-width:0"><strong style="font-size:14px;color:#333;display:block">' + s.id + '</strong>' +
+        '<p style="margin:2px 0 0;font-size:13px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (shortDesc || '\u65e0\u63cf\u8ff0') + '</p></div>' +
+        '<label onclick="event.stopPropagation()" style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer">' +
+        '<input type="checkbox" ' + checked + ' onchange="toggleSkill(\'' + s.id + '\', this.checked)" style="opacity:0;width:0;height:0">' +
+        '<span class="slider" style="position:absolute;inset:0;background:' + (s.enabled ? '#4caf50' : '#ccc') + ';border-radius:11px;transition:0.3s"></span>' +
+        '<span class="slider-dot" style="position:absolute;top:2px;left:' + (s.enabled ? '20px' : '2px') + ';width:18px;height:18px;background:#fff;border-radius:50%;transition:0.3s"></span></label></div>' +
+        '<div class="skill-body" style="padding:0 16px 14px;display:none;font-size:13px;color:#555;line-height:1.6;white-space:pre-wrap;max-height:300px;overflow-y:auto"></div></div>';
     }).join('');
-  }).catch(function() { el.innerHTML = '<p style="color:#e53935">加载失败</p>'; });
+    // 填充完整描述 + 绑定事件
+    el.querySelectorAll('.skill-card').forEach(function(card, i) {
+      var body = card.querySelector('.skill-body');
+      body.textContent = skills[i].description || '';
+      card.querySelector('.skill-header').addEventListener('click', function() {
+        var expanded = card.classList.toggle('expanded');
+        body.style.display = expanded ? 'block' : 'none';
+      });
+    });
+    // 绑定 slider 点击变色
+    el.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
+      cb.addEventListener('change', function() {
+        var dot = this.parentElement.querySelector('.slider-dot');
+        var slider = this.parentElement.querySelector('.slider');
+        slider.style.background = this.checked ? '#4caf50' : '#ccc';
+        dot.style.left = this.checked ? '20px' : '2px';
+      });
+    });
+  }).catch(function() { el.innerHTML = '<p style="color:#e53935">\u52a0\u8f7d\u5931\u8d25</p>'; });
+}
+
+function toggleSkill(name, enabled) {
+  fetch('/api/skills/' + encodeURIComponent(name) + '/toggle', { method: 'POST' }).then(function(r) {
+    return r.json();
+  }).then(function(data) {
+    if (data.status === 'ok') {
+      console.log('skill ' + name + ' toggled: ' + (data.enabled ? 'on' : 'off'));
+    }
+  }).catch(function() {});
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function loadTools() {

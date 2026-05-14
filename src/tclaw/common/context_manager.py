@@ -179,16 +179,16 @@ class ContextManager:
             if content:
                 parts.append(content)
 
-        # ── 块4：技能菜单 ────────────────────────────
-        skills_content = _build_skills_block()
-        if skills_content:
-            parts.append(skills_content)
-
         if parts:
             ctx.messages.append({"role": "system", "content": "\n\n".join(parts)})
 
         # ── 块3：对话区 ──────────────────────────────
         ctx.messages.extend(self._history)
+
+        # ── 块4：技能菜单（放对话后面，最靠近 LLM 回复） ─
+        skills_content = _build_skills_block()
+        if skills_content:
+            ctx.messages.append({"role": "system", "content": skills_content})
 
         if new_event:
             text = new_event.get("content", "")

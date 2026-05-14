@@ -142,11 +142,13 @@ class Gateway:
         # TODO: Phase 2
 
     def _handle_reset(self, session_id: str) -> None:
-        """重置 session：清历史 + 重建 ContextManager。"""
+        """重置 session：清历史 + 清事件 + 重建 ContextManager。"""
         ctx = self.bus._get_context_mgr(session_id)
         if ctx:
             import asyncio
             asyncio.create_task(ctx.clear())
+        self.frontend.delete_session_events(session_id)
+        self.frontend.cleanup_session(session_id)
         logger.info("session reset: %s", session_id)
 
     # ── 前端辅助 ─────────────────────────────────────────
@@ -161,32 +163,20 @@ class Gateway:
         self.sessions.cleanup(session_id)
 
     async def restore_session(self, session_id: str) -> None:
-        """重建前端会话状态（断线重连后用）。只恢复人话，跳过内部 tool 交互。"""
-        ctx = self.bus._get_context_mgr(session_id)
-        if not ctx or not ctx.history:
+        """重建前端会话状态（断线重连后用）。从事件数据库回放。"""
+        events = self.frontend.get_session_events(session_id)
+        if not events:
             return
 
-        # 只恢复 user 和 assistant 文本，跳过 tool_call/tool_result 等内部消息
-        for msg in ctx.history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            tool_calls = msg.get("tool_calls")
-
-            if role == "user" and content:
-                await self.frontend.send(session_id, {
-                    "type": "chat_history", "role": "user", "content": content,
-                })
-            elif role == "assistant" and not tool_calls and content:
-                await self.frontend.send(session_id, {
-                    "type": "chat_history", "role": "assistant", "content": content,
-                })
-
-        # 重新注册活跃的组件
-        for cid, binding in self.frontend.component_manager._components.items():
-            if binding.session_id == session_id:
-                await self.frontend.send(session_id, {
-                    "type": "component_register",
-                    "component_id": cid,
-                    "tool_id": binding.tool_id,
-                    "schema": binding.schema,
-                })
+        self.frontend._replaying = True
+        try:
+            # 跳过旧的 component_register（重启后 component_manager 里没有这些组件）
+            active_component_ids = set()
+            for ev in events:
+                if ev.get("type") == "component_register":
+                    cid = ev.get("component_id", "")
+                    if cid not in self.frontend.component_manager._components:
+                        continue  # 组件已不在追踪中，跳过
+                await self.frontend.send(session_id, ev)
+        finally:
+            self.frontend._replaying = False
