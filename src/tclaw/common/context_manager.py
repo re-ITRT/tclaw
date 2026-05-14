@@ -37,8 +37,10 @@ from .settings import (
     GATEWAY_HOST,
     GATEWAY_PORT,
     LLM_MODEL,
+    SUB_WORKSPACES_DIR,
 )
 from .skills import get_skill_menu
+from .sub_workspace import get_workspace_path, create_workspace, _get_forks
 
 
 @dataclass
@@ -57,20 +59,44 @@ def _read_file(path: str) -> str:
     return ""
 
 
-def _build_init_prompt(session_type: str = "main") -> str:
+def _get_memory_dir(session_id: str = "") -> str:
+    """获取 session 对应的 memory 目录。支持 fork 映射。"""
+    if not session_id or session_id == "main":
+        return MEMORY_DIR
+
+    forks = _get_forks()
+
+    # fork 映射：共享源工作区记忆
+    if session_id in forks:
+        source = forks[session_id]
+        if source == "main":
+            return MEMORY_DIR
+        return os.path.join(SUB_WORKSPACES_DIR, source, "memory")
+
+    # sub: 子工作区
+    if session_id.startswith("sub:"):
+        ws = get_workspace_path(session_id)
+        if not ws or not os.path.isdir(ws):
+            create_workspace(session_id)
+            ws = get_workspace_path(session_id)
+        return os.path.join(ws, "memory")
+
+    return MEMORY_DIR
+
+
+def _build_init_prompt(session_type: str = "main", session_id: str = "") -> str:
     """块1 — 系统初始化。
 
-    排列顺序（优先级从高到低）：
-      1. SOUL.md — 最前面，每个 session 都加载
-      2. 人格/身份/用户/环境配置
-      3. MEMORY.md + 每日笔记 — 仅 main session
+    根据 session_id 加载对应子工作区的记忆文件。
     """
     parts = []
 
-    # 1. SOUL.md → 最前面
-    soul = _read_file(AGENT_SOUL)
-    if soul:
-        parts.append(f"## 人格\n\n{soul}")
+    # 确定 memory 目录
+    memory_dir = _get_memory_dir(session_id)
+    soul_path = os.path.join(memory_dir, "SOUL.md")
+    identity_path = os.path.join(memory_dir, "IDENTITY.md")
+    user_path = os.path.join(memory_dir, "USER.md")
+    tools_path = os.path.join(memory_dir, "TOOLS.md")
 
     # 2. 工作区与环境信息
     env_lines = [
@@ -85,27 +111,26 @@ def _build_init_prompt(session_type: str = "main") -> str:
 
     # 3. 身份/用户/自定义配置
     for label, path in [
-        ("身份", AGENT_IDENTITY),
-        ("用户", AGENT_USER),
-        ("工具", AGENT_TOOLS),
+        ("身份", identity_path),
+        ("用户", user_path),
+        ("工具", tools_path),
     ]:
         content = _read_file(path)
         if content:
             parts.append(f"## {label}\n\n{content}")
 
-    # 3. 记忆 + 每日笔记（仅 main session）
-    if session_type == "main":
-        memory = _read_file(os.path.join(MEMORY_DIR, "MEMORY.md"))
-        if memory:
-            parts.append(f"## 长期记忆\n\n{memory}")
+    # 3. 记忆 + 每日笔记
+    memory = _read_file(os.path.join(memory_dir, "MEMORY.md"))
+    if memory:
+        parts.append(f"## 长期记忆\n\n{memory}")
 
-        # 今天 + 昨天的每日笔记
-        today = date.today()
-        for d in [today, today - timedelta(days=1)]:
-            daily_path = os.path.join(MEMORY_DAILY_DIR, f"{d.isoformat()}.md")
-            content = _read_file(daily_path)
-            if content:
-                parts.append(f"## 每日笔记 ({d.isoformat()})\n\n{content}")
+    # 今天 + 昨天的每日笔记
+    today = date.today()
+    for d in [today, today - timedelta(days=1)]:
+        daily_path = os.path.join(memory_dir, "daily", f"{d.isoformat()}.md")
+        content = _read_file(daily_path)
+        if content:
+            parts.append(f"## 每日笔记 ({d.isoformat()})\n\n{content}")
 
     # 引导文件已全部注入上下文，无需再读
     parts.append(
@@ -127,14 +152,16 @@ def _build_skills_block() -> str:
     items = get_skill_menu()
     if not items:
         return ""
-    lines = ["## 可用技能"]
+    lines = ["## 可用技能", "", "当用户的任务需要用到某个技能时，调用 `load_skill` 加载完整内容。", ""]
     for sk in items:
         desc = sk["description"]
         if desc:
-            lines.append(f"- {sk['name']} ({sk['display']}): {desc}")
+            lines.append(f"- `{sk['name']}` — {desc}")
         else:
-            lines.append(f"- {sk['name']} ({sk['display']})")
-    lines.append("用 load_skill 加载完整内容。")
+            lines.append(f"- `{sk['name']}`")
+    if items:
+        lines.append("")
+        lines.append("用法：`load_skill(name=技能名称)` — 将完整 SKILL.md 注入上下文。")
     return "\n".join(lines)
 
 
@@ -153,7 +180,7 @@ class ContextManager:
         self._system_prompt = system_prompt
         self._session_type = session_type
         self._session_id = session_id
-        self._init_prompt = _build_init_prompt(session_type)
+        self._init_prompt = _build_init_prompt(session_type, session_id)
         self._prelude: list[dict] = []
         self._history: list[dict] = []
         self._last_tool_call_ids: list[str] = []

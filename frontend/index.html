@@ -94,6 +94,7 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
 <div id="sidebar" style="width:200px;background:#1a1a2e;color:#ccc;display:flex;flex-direction:column;flex-shrink:0">
   <div style="padding:16px;font-weight:700;font-size:16px;color:#fff;border-bottom:1px solid #333">tclaw</div>
   <div id="nav-chat" class="nav-item active" onclick="switchTab('chat')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">💬 聊天</div>
+  <div id="nav-sessions" class="nav-item" onclick="switchTab('sessions')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">📂 会话</div>
   <div id="nav-skills" class="nav-item" onclick="switchTab('skills')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">🧠 Skills</div>
   <div id="nav-tools" class="nav-item" onclick="switchTab('tools')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">🛠 Tools</div>
   <div id="nav-extensions" class="nav-item" onclick="switchTab('extensions')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">🔌 Extensions</div>
@@ -152,6 +153,15 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
       <p style="margin:4px 0 0;font-size:13px;color:#888">系统钩子与中间件</p>
     </div>
     <div id="extensions-list" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- Sessions 标签 -->
+  <div id="tab-sessions" class="tab-content" style="display:none;flex-direction:column;height:100%">
+    <div style="padding:16px 20px;border-bottom:1px solid #e0e0e0;background:#fff">
+      <h2 style="margin:0;font-size:18px;color:#333">📂 会话</h2>
+      <p style="margin:4px 0 0;font-size:13px;color:#888">管理工作区与记忆空间</p>
+    </div>
+    <div id="workspace-list" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px"></div>
   </div>
 
 </div>
@@ -214,6 +224,7 @@ function switchTab(name) {
   if (name === 'skills') loadSkills();
   else if (name === 'tools') loadTools();
   else if (name === 'extensions') loadExtensions();
+  else if (name === 'sessions') loadSessions();
 }
 
 function loadSkills() {
@@ -297,6 +308,120 @@ function loadExtensions() {
   }).catch(function() { el.innerHTML = '<p style="color:#e53935">加载失败</p>'; });
 }
 
+// ── 会话管理 ──────────────────────────────────────────
+function loadSessions() {
+  var el = document.getElementById('workspace-list');
+  el.innerHTML = '<p style="color:#888">加载中...</p>';
+  fetch('/api/workspaces').then(function(r) { return r.json(); }).then(function(data) {
+    var ws = data.workspaces || [];
+    el.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:12px"><input id="newSessionName" placeholder="新会话名称" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px" /><button onclick="createSubWorkspace()" style="padding:8px 16px;border:none;border-radius:6px;cursor:pointer;background:#4caf50;color:#fff;font-size:13px;white-space:nowrap">+ 新建</button></div>' +
+      '<div style="display:flex;gap:8px;margin-bottom:16px"><select id="templateSelect" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px"><option value="">从模板创建...</option>' +
+      ws.filter(function(w) { return w.kind === 'template'; }).map(function(w) { return '<option value="' + w.id.replace('template:','') + '">' + w.label + '</option>'; }).join('') +
+      '</select><button onclick="createFromTemplate()" style="padding:8px 16px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:13px">模板创建</button></div>' +
+      '<div style="font-size:13px;color:#888;margin-bottom:8px;font-weight:600">我的会话</div>' +
+      ws.filter(function(w) { return (w.kind === 'session' || w.kind === 'fork'); }).map(function(w) {
+        var isMain = (w.id === 'main');
+        return '<div style="background:#fff;padding:14px 16px;border-radius:8px;border:1px solid #e0e0e0;display:flex;align-items:center;gap:10px">' +
+          '<div style="flex:1;min-width:0"><strong style="font-size:14px;color:#333">' + w.label + '</strong>' +
+          '<p style="margin:2px 0 0;font-size:12px;color:#aaa">' + w.id + '</p></div>' +
+          '<button onclick="connectToWorkspace(\'' + w.id + '\')" style="padding:6px 12px;border:1px solid #2196f3;border-radius:6px;cursor:pointer;background:#e3f2fd;color:#1565c0;font-size:12px;white-space:nowrap">连接</button>' +
+          '<button onclick="forkWorkspace(\'' + w.id + '\')" style="padding:6px 10px;border:1px solid #9c27b0;border-radius:6px;cursor:pointer;background:#f3e5f5;color:#7b1fa2;font-size:12px">多开</button>' +
+          '<button onclick="cloneWorkspace(\'' + w.id + '\')" style="padding:6px 10px;border:1px solid #ff9800;border-radius:6px;cursor:pointer;background:#fff3e0;color:#e65100;font-size:12px">复制</button>' +
+          '<button onclick="makeTemplate(\'' + w.id + '\')" style="padding:6px 10px;border:1px solid #607d8b;border-radius:6px;cursor:pointer;background:#eceff1;color:#455a64;font-size:12px">模板</button>' +
+          (!isMain ? '<button onclick="deleteWorkspace(\'' + w.id + '\')" style="padding:6px 10px;border:1px solid #e57373;border-radius:6px;cursor:pointer;background:#fff;color:#e53935;font-size:12px">✕</button>' : '') +
+          '</div>';
+      }).join('') + (ws.filter(function(w) { return (w.kind === 'session' || w.kind === 'fork'); }).length === 0 ? '<p style="color:#888;font-size:13px">暂无会话</p>' : '');
+  // 模板列表
+  var tmpls = ws.filter(function(w) { return w.kind === 'template'; });
+  if (tmpls.length > 0) {
+    var tmplHtml = '<div style="font-size:13px;color:#888;margin:16px 0 8px 0;font-weight:600">模板</div>';
+    tmplHtml += tmpls.map(function(w) {
+      return '<div style="background:#fff;padding:14px 16px;border-radius:8px;border:1px solid #e0e0e0;display:flex;align-items:center;gap:10px">' +
+        '<div style="flex:1;min-width:0"><strong style="font-size:14px;color:#333">' + w.label + '</strong>' +
+        '<p style="margin:2px 0 0;font-size:12px;color:#aaa">模板</p></div>' +
+        '<button onclick="deleteWorkspace(\'' + w.id + '\')" style="padding:6px 10px;border:1px solid #e57373;border-radius:6px;cursor:pointer;background:#fff;color:#e53935;font-size:12px">删除</button></div>';
+    }).join('');
+    el.innerHTML += tmplHtml;
+  }
+  }).catch(function() { el.innerHTML = '<p style="color:#e53935">加载失败</p>'; });
+}
+
+function createSubWorkspace() {
+  var name = document.getElementById('newSessionName').value.trim();
+  if (!name) { alert('请输入会话名称'); return; }
+  fetch('/api/workspaces/create', { method: 'POST', headers: {"Content-Type":"application/json"}, body: JSON.stringify({ session_id: 'sub:' + name }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.status === 'ok') { loadSessions(); } else { alert(d.message); } })
+    .catch(function() { alert('创建失败'); });
+}
+
+function createFromTemplate() {
+  var name = document.getElementById('newSessionName').value.trim();
+  var tmpl = document.getElementById('templateSelect').value;
+  if (!tmpl) { alert('请选择模板'); return; }
+  if (!name) { alert('请输入新会话名称'); return; }
+  fetch('/api/workspaces/from-template', { method: 'POST', headers: {"Content-Type":"application/json"}, body: JSON.stringify({ template: tmpl, new_id: 'sub:' + name }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.status === 'ok') { loadSessions(); } else { alert(d.message); } })
+    .catch(function() { alert('创建失败'); });
+}
+
+function cloneWorkspace(source) {
+  var label = prompt('新会话名称：', source.replace('sub:','') + '-clone');
+  if (!label) return;
+  fetch('/api/workspaces/' + encodeURIComponent(source) + '/clone', { method: 'POST', headers: {"Content-Type":"application/json"}, body: JSON.stringify({ new_id: 'sub:' + label }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.status === 'ok') { loadSessions(); } else { alert(d.message); } })
+    .catch(function() { alert('复制失败'); });
+}
+
+function deleteWorkspace(name) {
+  if (!confirm('确定删除会话 "' + name + '"？所有记忆文件将丢失。')) return;
+  fetch('/api/workspaces/' + encodeURIComponent(name), { method: 'DELETE' })
+    .then(function() { loadSessions(); })
+    .catch(function() { alert('删除失败'); });
+}
+
+function makeTemplate(source) {
+  var name = prompt('模板名称：', source.replace('sub:','') + '-template');
+  if (!name) return;
+  fetch('/api/workspaces/' + encodeURIComponent(source) + '/template', {
+    method: 'POST', headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ template_name: name })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === 'ok') { loadSessions(); alert('模板已创建: ' + name); }
+    else { alert(d.message); }
+  }).catch(function() { alert('创建模板失败'); });
+}
+
+function connectToWorkspace(session_id) {
+  document.getElementById('sessionStatus').textContent = '切换中...';
+  _switching = true;
+  if (ws) { ws.close(); ws = null; }
+  sessionId = session_id;
+  connectTo(session_id);
+}
+
+function forkWorkspace(source) {
+  var label = prompt('新 session 名称（多开，共享记忆）：', source + '-fork');
+  if (!label) return;
+  var newId = label;
+  document.getElementById('sessionStatus').textContent = '多开中...';
+  fetch('/api/workspaces/' + encodeURIComponent(source) + '/fork', {
+    method: 'POST', headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ new_id: newId })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === 'ok') {
+      loadSessions();
+      // 自动切换到新多开
+      _switching = true;
+      if (ws) { ws.close(); ws = null; }
+      sessionId = newId;
+      connectTo(newId);
+    } else { alert(d.message); }
+  }).catch(function() { alert('多开失败'); });
+}
+
 // ── 连接管理 ──────────────────────────────────────────
 function toggleConnect() {
   if (ws && ws.readyState === WebSocket.OPEN) { disconnect(); }
@@ -364,6 +489,7 @@ function connectTo(sid) {
     document.getElementById('msgInput').disabled = false;
     document.getElementById('sendBtn').disabled = false;
     addMsg('system', '已连接: ' + sid);
+    refreshSessionList();
   };
   ws.onclose = function() {
     document.getElementById('msgInput').disabled = true;
@@ -586,23 +712,16 @@ function toggleAutoScroll() {
 
 // ── 会话列表 ────────────────────────────────────────────
 function refreshSessionList() {
-  fetch('/api/sessions').then(function(r) { return r.json(); }).then(function(data) {
-    // 更新下拉框
+  fetch('/api/workspaces').then(function(r) { return r.json(); }).then(function(data) {
     var sel = document.getElementById('sessionSelect');
     var current = sel.value;
     sel.innerHTML = '';
-    var sessions = data.sessions || [];
-    if (sessions.length === 0) {
+    var sessions = data.workspaces ? data.workspaces.filter(function(w) { return (w.kind === 'session' || w.kind === 'fork'); }) : [];
+    sessions.forEach(function(s) {
       var o = document.createElement('option');
-      o.value = 'main'; o.textContent = 'main';
+      o.value = s.id; o.textContent = s.label + (s.id === 'main' ? '' : ' (sub)');
       sel.appendChild(o);
-    } else {
-      sessions.forEach(function(s) {
-        var o = document.createElement('option');
-        o.value = s.id; o.textContent = s.id + ' (' + (s.messages || 0) + '条)';
-        sel.appendChild(o);
-      });
-    }
+    });
     // 恢复当前选中
     if (current && document.querySelector('#sessionSelect option[value="' + current + '"]')) {
       sel.value = current;
@@ -617,7 +736,7 @@ function deleteSession() {
   var sid = document.getElementById('sessionSelect').value;
   if (!sid || sid === 'main') { alert('main 会话不可删除'); return; }
   if (!confirm('确定删除会话 "' + sid + '"？所有聊天记录将丢失。')) return;
-  fetch('/api/sessions/' + sid, { method: 'DELETE' }).then(function(r) {
+  fetch('/api/workspaces/' + encodeURIComponent(sid), { method: 'DELETE' }).then(function(r) {
     return r.json();
   }).then(function() {
     // 如果删的是当前 session，切回 main

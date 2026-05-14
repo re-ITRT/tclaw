@@ -217,6 +217,71 @@ def create_app(gateway: Gateway) -> FastAPI:
             return FileResponse(file_path)
         return Response(status_code=404, content="not found")
 
+    # ── 子工作区 API ──────────────────────────────────────
+
+    @app.get("/api/workspaces")
+    async def api_workspaces():
+        from tclaw.common.sub_workspace import list_workspaces
+        return {"workspaces": list_workspaces()}
+
+    @app.post("/api/workspaces/create")
+    async def api_create_workspace(data: dict):
+        from tclaw.common.sub_workspace import create_workspace
+        session_id = data.get("session_id", "")
+        if not session_id or not session_id.startswith("sub:"):
+            return {"status": "error", "message": "session_id must start with 'sub:'"}
+        path = create_workspace(session_id)
+        return {"status": "ok", "session_id": session_id, "path": path}
+
+    @app.post("/api/workspaces/{name}/clone")
+    async def api_clone_workspace(name: str, data: dict):
+        from tclaw.common.sub_workspace import clone_workspace
+        new_id = data.get("new_id", "")
+        if not new_id:
+            return {"status": "error", "message": "new_id required"}
+        try:
+            path = clone_workspace(name, new_id)
+            return {"status": "ok", "session_id": new_id, "path": path}
+        except (FileExistsError, FileNotFoundError) as e:
+            return {"status": "error", "message": str(e)}
+
+    @app.post("/api/workspaces/{name}/fork")
+    async def api_fork_workspace(name: str, data: dict):
+        from tclaw.common.sub_workspace import fork_workspace
+        new_id = data.get("new_id", name)
+        try:
+            path = fork_workspace(name, new_id)
+            return {"status": "ok", "session_id": new_id, "path": path}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    @app.post("/api/workspaces/from-template")
+    async def api_from_template(data: dict):
+        from tclaw.common.sub_workspace import use_template
+        template_name = data.get("template", "")
+        new_id = data.get("new_id", "")
+        if not template_name or not new_id:
+            return {"status": "error", "message": "template and new_id required"}
+        path = use_template(template_name, new_id)
+        return {"status": "ok", "session_id": new_id, "path": path, "template": template_name}
+
+    @app.post("/api/workspaces/{name}/template")
+    async def api_create_template(name: str, data: dict):
+        """从 session 创建模板。"""
+        from tclaw.common.sub_workspace import create_template
+        template_name = data.get("template_name", "") or name
+        try:
+            path = create_template(name, template_name)
+            return {"status": "ok", "template": template_name, "path": path}
+        except (FileExistsError, FileNotFoundError) as e:
+            return {"status": "error", "message": str(e)}
+
+    @app.delete("/api/workspaces/{name}")
+    async def api_delete_workspace(name: str):
+        from tclaw.common.sub_workspace import delete_workspace
+        ok = delete_workspace(name)
+        return {"status": "deleted" if ok else "error", "name": name}
+
     return app
 
 

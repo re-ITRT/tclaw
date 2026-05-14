@@ -1,0 +1,10 @@
+{
+  "agent-world": true,
+  "find-skills": true,
+  "latex": true,
+  "markdown-converter": true,
+  "postels-coding-system": true,
+  "sample-skill": true,
+  "self-improving-agent": true,
+  "skillhub-preference": true
+}

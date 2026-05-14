@@ -91,6 +91,10 @@ def _get(dotted: str, default: str = "") -> str:
 
 WORKSPACE_DIR: str = _get("workspace", os.path.expanduser("~/tclaw/workspace"))
 MEMORY_DIR: str = os.path.join(WORKSPACE_DIR, "memory")
+
+# ── 子工作区（session 独立记忆空间） ─────────────────
+
+SUB_WORKSPACES_DIR: str = os.path.join(WORKSPACE_DIR, "sub_workspaces")
 MEMORY_FILE: str = os.path.join(MEMORY_DIR, "MEMORY.md")
 MEMORY_DAILY_DIR: str = os.path.join(MEMORY_DIR, "daily")
 MEMORY_INDEX_DB: str = os.path.join(MEMORY_DIR, "index.db")
