@@ -1,4 +1,4 @@
-# tclaw — 下一代 AI Agent 框架
+# tclaw — 基于EventBus 的 AI Agent 框架
 
 借鉴 OpenClaw 的设计思想，在关键选型上做自己的决策，自建体系。
 
@@ -26,6 +26,14 @@ Gateway ──→ Tool (直调) ──→ LLM 循环
 - **Event = dict**：`{"topic": str, "payload": dict}`，不再有 Event dataclass
 - **Server-Driven UI**：前端纯渲染，组件注册/更新/销毁由服务端驱动
 - **Gateway 直连 Tool**：前端交互不走 EventBus，通过 FrontendService 直调
+
+## 相关截图
+
+![Session管理界面](figs/ScreenShot_2026-05-15_005931_013.png)
+![Skill管理界面](figs/ScreenShot_2026-05-15_010049_415.png)
+![quiz(tool)交互范式测试](figs/ScreenShot_2026-05-15_010352_372.png)
+![聊天界面](figs/%E8%81%8A%E5%A4%A9%E7%95%8C%E9%9D%A2.png)
+![上下文压缩和定时任务界面](figs/%E4%B8%8A%E4%B8%8B%E6%96%87%E5%8E%8B%E7%BC%A9%E5%92%8C%E5%AE%9A%E6%97%B6%E4%BB%BB%E5%8A%A1%E5%8A%9F%E8%83%BD.png)
 
 ## 快速开始
 
