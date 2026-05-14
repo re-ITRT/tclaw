@@ -113,7 +113,11 @@ def _build_init_prompt(session_type: str = "main") -> str:
         "SOUL.md、MEMORY.md、IDENTITY.md、USER.md、TOOLS.md 等引导文件"
         "已全部加载到本 system prompt 中。\n"
         "**不要使用 read/edit/memory_get 等工具读取这些文件**"
-        "——内容就在这里。"
+        "——内容就在这里。\n\n"
+        "## 回复格式\n\n"
+        "所有回复使用 **Markdown** 格式。"
+        "支持：标题、粗体、列表、代码块、表格、链接等。"
+        "这能让前端正确渲染格式。"
     )
     return "\n\n".join(parts)
 

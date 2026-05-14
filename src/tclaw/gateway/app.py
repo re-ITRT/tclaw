@@ -142,6 +142,63 @@ def create_app(gateway: Gateway) -> FastAPI:
         gateway.cleanup_session(session_id)
         return {"status": "cleared", "session_id": session_id}
 
+    @app.get("/api/tools")
+    async def api_tools():
+        """列出所有工具。跳过 TOOL.md 的 YAML front matter 提取描述。"""
+        tools = []
+        for tid, t in gateway.bus.registered_tools.items():
+            # 提取描述：跳过 YAML front matter
+            desc = ""
+            md = t.tool_md.strip()
+            if md:
+                lines = md.split(chr(10))
+                start = 0
+                if lines and lines[0].strip() == "---":
+                    for i in range(1, len(lines)):
+                        if lines[i].strip() == "---":
+                            start = i + 1
+                            break
+                for i in range(start, len(lines)):
+                    line = lines[i].strip()
+                    if line and not line.startswith("#"):
+                        desc = line[:120]
+                        break
+            tools.append({"id": tid, "description": desc})
+        return {"tools": tools}
+
+    @app.get("/api/extensions")
+    async def api_extensions():
+        exts = []
+        for eid, e in gateway.bus.registered_extensions.items():
+            exts.append({"id": eid})
+        return {"extensions": exts}
+
+    @app.get("/api/skills")
+    async def api_skills():
+        import os
+        from tclaw.common.settings import SKILLS_DIR
+        skills = []
+        if os.path.isdir(SKILLS_DIR):
+            for name in sorted(os.listdir(SKILLS_DIR)):
+                skill_dir = os.path.join(SKILLS_DIR, name)
+                if os.path.isdir(skill_dir):
+                    md_path = os.path.join(skill_dir, "SKILL.md")
+                    desc = ""
+                    if os.path.isfile(md_path):
+                        with open(md_path, "r", encoding="utf-8") as f:
+                            desc = f.read().strip()[:120]
+                    skills.append({"id": name, "description": desc})
+        return {"skills": skills}
+
+    @app.get("/s/{filename:path}")
+    async def serve_static(filename: str):
+        """Serve static files from frontend/."""
+        import os
+        file_path = os.path.normpath(str(_FRONTEND_DIR / filename))
+        if os.path.isfile(file_path) and file_path.startswith(str(_FRONTEND_DIR)):
+            return FileResponse(file_path)
+        return Response(status_code=404, content="not found")
+
     return app
 
 

@@ -25,7 +25,7 @@ class FrontendService:
 
     def __init__(self, gateway: Gateway) -> None:
         self._gateway = gateway
-        self.component_manager = GatewayComponentManager(gateway)
+        self.component_manager = GatewayComponentManager(self)
         os.makedirs(SESSION_DIR, exist_ok=True)
         logger.debug("FrontendService initialized (session_dir=%s)", SESSION_DIR)
 

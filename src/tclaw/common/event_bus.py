@@ -312,8 +312,8 @@ class EventBus:
             display_text = response.text
             if not display_text and response.assistant_message:
                 display_text = response.assistant_message.get("reasoning_content", "")
-            if display_text and self._gateway:
-                await self._gateway.send(sid, {
+            if display_text and self.frontend_service:
+                await self.frontend_service.send(sid, {
                     "type": "assistant", "content": display_text,
                 })
 
@@ -340,8 +340,8 @@ class EventBus:
                 await ctx.append(response.assistant_message)
             if response.text:
                 log_assistant(sid, response.text)
-                if self._gateway:
-                    await self._gateway.send(sid, {
+                if self.frontend_service:
+                    await self.frontend_service.send(sid, {
                         "type": "assistant", "content": response.text,
                     })
 

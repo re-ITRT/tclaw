@@ -79,10 +79,11 @@ class ComponentBinding:
 
 
 class GatewayComponentManager(ComponentManager):
-    """基于 WebSocket 的组件注册中心。"""
+    """基于 WebSocket 的组件注册中心。所有前端通信走 FrontendService。"""
 
-    def __init__(self, gateway: Gateway) -> None:
-        self._gateway = gateway
+    def __init__(self, frontend_service) -> None:
+        self._frontend = frontend_service
+        self._gateway = frontend_service._gateway
         self._components: dict[str, ComponentBinding] = {}
 
     def _resolve_component_url(self, tool_id: str, schema: dict) -> str | None:
@@ -108,7 +109,7 @@ class GatewayComponentManager(ComponentManager):
         )
         self._components[component_id] = binding
 
-        await self._gateway.send(session_id, {
+        await self._frontend.send(session_id, {
             "type": "component_register",
             "component_id": component_id,
             "session_id": session_id,
@@ -140,7 +141,7 @@ class GatewayComponentManager(ComponentManager):
         binding = self._components.get(component_id)
         if not binding:
             return
-        await self._gateway.send(binding.session_id, {
+        await self._frontend.send(binding.session_id, {
             "type": "component_update",
             "component_id": component_id,
             "data": data,
@@ -151,7 +152,7 @@ class GatewayComponentManager(ComponentManager):
         if binding:
             if not binding.future.done():
                 binding.future.cancel()
-            await self._gateway.send(binding.session_id, {
+            await self._frontend.send(binding.session_id, {
                 "type": "component_destroy",
                 "component_id": component_id,
             })
