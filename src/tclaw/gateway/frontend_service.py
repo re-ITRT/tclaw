@@ -30,6 +30,7 @@ class FrontendService:
         self._gateway = gateway
         self.component_manager = GatewayComponentManager(self)
         self._replaying = False  # 回放时不重复记录
+        self._no_ws = False  # 仅记录不推送（如用户消息）
         os.makedirs(SESSION_DIR, exist_ok=True)
         self._db_path = os.path.join(SESSION_DIR, "events.db")
         self._local = threading.local()
@@ -82,7 +83,9 @@ class FrontendService:
             except Exception as e:
                 logger.warning("failed to persist frontend event: %s", e)
 
-        await self._gateway.sessions.send(session_id, data)
+        if not self._no_ws:
+            await self._gateway.sessions.send(session_id, data)
+        self._no_ws = False
 
     # ── 事件回放 ─────────────────────────────────────────
 

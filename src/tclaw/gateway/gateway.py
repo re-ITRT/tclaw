@@ -104,11 +104,17 @@ class Gateway:
             logger.warning("unknown message type: %s", msg_type)
 
     async def _handle_text(self, data: dict, session_id: str) -> None:
-        """用户文本 → user_input tool.handle_gateway_event()。"""
+        """用户文本 → user_input tool.handle_gateway_event()。同时记录到前端事件库。"""
+        text = data.get("content", "")
+        if text:
+            self.frontend._no_ws = True
+            await self.frontend.send(session_id, {
+                "type": "chat_history", "role": "user", "content": text,
+            })
         tool = self.bus.get_tool("user_input")
         if tool:
             await tool.handle_gateway_event(
-                data={"content": data.get("content", ""), "files": data.get("files", [])},
+                data={"content": text, "files": data.get("files", [])},
                 session_id=session_id,
             )
 

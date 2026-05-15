@@ -48,6 +48,7 @@ class EventBus:
         self._session_queues: dict[str, asyncio.Queue[dict]] = {}
         self._worker_tasks: dict[str, asyncio.Task] = {}
         self._dispatcher_task: asyncio.Task | None = None
+        self._usage: dict[str, dict] = {}  # session_id -> {prompt, completion, calls}
         self._running = False
 
     # ── Tool 注册 ───────────────────────────────────────────
@@ -305,8 +306,11 @@ class EventBus:
                             logger.debug("tool result queued, %d still pending", pending)
                         continue
 
-                await self._run_llm_loop(event)
-            else:
+                try:
+                    await self._run_llm_loop(event)
+                except Exception as e:
+                    logger.error("LLM loop crashed: %s", e)
+                    logger.exception(e)
                 await self._route_to_handlers(event)
 
         self._session_queues.pop(session_id, None)
@@ -345,11 +349,33 @@ class EventBus:
         else:
             context = await ctx.build_context(tool_specs=tool_specs)
 
+        logger.debug(">>> _run_llm_loop: calling llm.chat (msgs=%d, tools=%d)", len(context.messages), len(context.tools or []))
         response = await llm.chat(context.messages, tools=context.tools)
+        logger.debug(">>> _run_llm_loop: llm.chat returned (response=%s, tool_call=%s, tool_calls=%d)", 
+                    type(response).__name__, bool(response.tool_call) if response else 'N/A',
+                    len(response.tool_calls) if response else 0)
+        if response is None:
+            logger.error("LLM returned None, skipping")
+            return
+        logger.debug("LLM chat completed, tool_call=%s, tool_calls=%d, usage=%s",
+                    bool(response.tool_call), len(response.tool_calls),
+                    response.usage)
+
+        logger.debug(">>> _run_llm_loop: processing response (has_tool_call=%s)", bool(response.tool_call))
+        # 记录 token 用量
+        if response.usage:
+            logger.debug(">>> usage: prompt=%d completion=%d", response.usage.get("prompt",0), response.usage.get("completion",0))
+            sid = sid or event.get("session_id", "") or event.get("payload", {}).get("session_id", "")
+            u = self._usage.setdefault(sid, {"prompt": 0, "completion": 0, "calls": 0})
+            u["prompt"] += response.usage.get("prompt", 0)
+            u["completion"] += response.usage.get("completion", 0)
+            u["calls"] += 1
 
         if response.tool_call:
+            logger.debug("tool_call branch entered")
             if response.assistant_message:
                 await ctx.append(response.assistant_message)
+                logger.debug("assistant msg appended to history")
 
             display_text = response.text
             if not display_text and response.assistant_message:
@@ -358,11 +384,13 @@ class EventBus:
                 await self.frontend_service.send(sid, {
                     "type": "assistant", "content": display_text,
                 })
+                logger.debug("reasoning pushed to frontend")
 
             if response.tool_calls:
                 for tc in response.tool_calls:
                     ctx._last_tool_call_ids.append(tc.get("id", ""))
 
+            logger.debug(">>> publishing %d tool_calls", len(response.tool_calls))
             for tc in response.tool_calls:
                 tool_name = tc["name"]
                 raw_args = tc.get("args", {})
@@ -372,12 +400,15 @@ class EventBus:
                         raw_args = _json.loads(raw_args)
                     except _json.JSONDecodeError:
                         raw_args = {"_raw": raw_args}
+                logger.debug("publishing tool.invoke.%s", tool_name)
                 await self.publish({
                     "topic": f"{Topics.TOOL_INVOKE}.{tool_name}",
                     "payload": raw_args,
                     "session_id": sid,
                 })
+                logger.debug("tool.invoke.%s published", tool_name)
         else:
+            logger.debug(">>> LLM text response, content=%s", str(response.text)[:60])
             if response.assistant_message:
                 await ctx.append(response.assistant_message)
             if response.text:

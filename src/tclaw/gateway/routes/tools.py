@@ -38,6 +38,26 @@ def register(app, gateway):
             if gateway.bus._get_context_mgr("main") else "",
         }
 
+    @app.get("/api/usage")
+    async def api_usage(session_id: str = ""):
+        """Token 用量统计。"""
+        usage = getattr(gateway.bus, "_usage", {})
+        if session_id:
+            return {"usage": usage.get(session_id, {})}
+        total_prompt = sum(u.get("prompt", 0) for u in usage.values())
+        total_completion = sum(u.get("completion", 0) for u in usage.values())
+        total_calls = sum(u.get("calls", 0) for u in usage.values())
+        return {
+            "usage": usage,
+            "total": {"prompt": total_prompt, "completion": total_completion, "calls": total_calls},
+        }
+    async def api_settings():
+        """当前配置（不含密钥）。"""
+        return {
+            "workspace": str(gateway.bus._get_context_mgr("main")._init_prompt[:100])
+            if gateway.bus._get_context_mgr("main") else "",
+        }
+
 
 def _extract_tool_description(tool) -> str:
     """从 TOOL.md 中提取第一行描述（跳过 YAML front matter）。"""
@@ -58,3 +78,4 @@ def _extract_tool_description(tool) -> str:
         if line and not line.startswith("#"):
             return line[:120]
     return ""
+

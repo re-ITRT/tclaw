@@ -21,11 +21,12 @@ logger = logging.getLogger("tclaw.llm_client")
 class LLMResponse:
     """LLM 返回结果。"""
     text: str = ""
-    tool_call: dict | None = None  # 第一个 tool_call（兼容）
-    tool_calls: list[dict] = field(default_factory=list)  # 所有 tool_call
+    tool_call: dict | None = None
+    tool_calls: list[dict] = field(default_factory=list)
     tool_call_id: str = ""
-    # 完整 assistant 消息（含 tool_calls），供上下文历史用
     assistant_message: dict | None = None
+    usage: dict | None = None
+    model: str = ""
 
 
 class LLMClient:
@@ -57,6 +58,7 @@ class LLMClient:
         final_tool_call_id: str = ""
         final_assistant_msg: dict | None = None
         current_msgs = list(messages)
+        usage = None
 
         while True:
             kwargs: dict[str, Any] = {
@@ -155,4 +157,6 @@ class LLMClient:
             tool_calls=final_tool_calls,
             tool_call_id=final_tool_call_id,
             assistant_message=final_assistant_msg,
+            usage=usage,
+            model=self.model,
         )

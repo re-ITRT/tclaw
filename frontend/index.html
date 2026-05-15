@@ -562,7 +562,10 @@ function disconnect() {
 function send() {
   var input = document.getElementById('msgInput');
   var text = input.value.trim();
-  if (!text || !ws) return;
+  console.log('send clicked', {text: text, ws: !!ws, readyState: ws ? ws.readyState : 'N/A'});
+  if (!text) { console.log('no text'); return; }
+  if (!ws) { console.log('ws null'); return; }
+  if (ws.readyState !== WebSocket.OPEN) { console.log('ws not open:', ws.readyState); return; }
   input.value = '';
   ws.send(JSON.stringify({ type: 'text', content: text }));
   addMsg('user', text);
@@ -577,8 +580,8 @@ function addMsg(role, text, asHtml) {
   } else {
     div.textContent = text;
   }
-  document.getElementById('chat').appendChild(div);
-  div.scrollIntoView({ behavior: 'smooth' });
+  var chatEl = document.getElementById('chat');
+  if (chatEl) { chatEl.appendChild(div); div.scrollIntoView({ behavior: 'smooth' }); }
 }
 
 // ── 处理 WS 消息 ──────────────────────────────────────

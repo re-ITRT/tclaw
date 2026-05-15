@@ -137,11 +137,16 @@ tclaw/
 │   │   ├── read/ + TOOL.md
 │   │   ├── quiz/ + TOOL.md + component/ (内嵌 iframe)
 │   │   ├── output/ + TOOL.md  ← text / figure / end 三种模式
-│   │   └── ... (write, edit, user_input, memory_*)
+│   │   ├── web_search/   ← 联网搜索（Kimi $web_search）
+│   │   └── ... (scheduler, cross_session, workspace_manager, ...)
 │   ├── extensions/          ← 系统扩展（自动发现）
 │   │   ├── sample/          ← 示例：监听 exec:after
 │   │   └── output_plugin/   ← 示例：监听 output:after
 │   └── main.py              ← 启动入口
+├── api/
+│   ├── /api/usage              ← Token 用量统计
+│   ├── /api/conversations/search ← 对话历史搜索
+│   └── /api/workspaces         ← 子工作区管理
 ├── frontend/
 │   └── index.html           ← 单页应用
 ├── workspace/
@@ -173,7 +178,7 @@ tclaw/
 ## 版本
 
 - **v0.2** — Gateway + Frontend + Extension（[ROADMAP.md](./ROADMAP.md)）
-- v0.1 — Phase Zero: Engine（已归档）
+- v2026.5.7.1 — Phase Zero: Engine（已归档）
 
 ## 许可证
 
