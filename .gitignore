@@ -28,3 +28,4 @@ workspace/memory/index.db
 workspace/sub_workspaces/
 workspace/.scheduler.json
 workspace/memory/key-exchange.md
+workspace/test-*
