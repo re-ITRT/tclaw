@@ -1,10 +1,10 @@
 # tclaw 项目历程
 
-> **v2025.5.15.1 — Gateway + Frontend + Extension 系统**
+> **v0.2 — Gateway + Frontend + Extension 系统**
 
 ---
 
-## ✅ v2025.5.15.1 已完工
+## ✅ v0.2 已完工
 
 ### 基础设施
 - 项目骨架 + uv 虚拟环境 + Git
@@ -122,4 +122,4 @@ execute(payload)
 
 ---
 
-*最后更新：2026-05-15 · v2025.5.15.1*
+*最后更新：2026-05-13 · v0.2*

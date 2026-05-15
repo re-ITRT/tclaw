@@ -172,8 +172,8 @@ tclaw/
 
 ## 版本
 
-- **v2025.5.15.1** — Gateway + Frontend + Multi-session + 定时任务（[ROADMAP.md](./ROADMAP.md)）
-- v2025.5.7.1 — Phase Zero: Engine（已归档）
+- **v0.2** — Gateway + Frontend + Extension（[ROADMAP.md](./ROADMAP.md)）
+- v0.1 — Phase Zero: Engine（已归档）
 
 ## 许可证
 

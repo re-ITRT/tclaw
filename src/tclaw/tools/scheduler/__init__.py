@@ -112,27 +112,47 @@ class SchedulerTool(Tool):
                 logger.exception("scheduler loop error")
 
     def _should_fire(self, task: dict, now: datetime) -> bool:
+        """检查任务是否到了触发时间。
+
+        支持三种调度模式：
+        - at：指定时间戳，一次触发
+        - every：间隔毫秒，重复触发
+        - cron：cron 表达式，匹配当前分钟
+        """
         last = task.get("last_fired", 0)
         sched = task.get("schedule", {})
         kind = sched.get("kind", "")
+
         if kind == "at":
-            at_ts = sched.get("at", 0)
-            if at_ts and last < at_ts and now.timestamp() * 1000 >= at_ts:
-                return True
+            return self._check_at(sched, last, now)
         elif kind == "every":
-            interval = sched.get("every_ms", 0)
-            if interval > 0 and (last == 0 or (now.timestamp() * 1000 - last) >= interval):
-                return True
+            return self._check_every(sched, last, now)
         elif kind == "cron":
-            expr = sched.get("expr", "")
-            if expr:
-                try:
-                    base = datetime(now.year, now.month, now.day, now.hour, now.minute)
-                    if croniter.match(expr, base) and last < base.timestamp():
-                        return True
-                except Exception:
-                    pass
+            return self._check_cron(sched, last, now)
         return False
+
+    def _check_at(self, sched: dict, last: float, now: datetime) -> bool:
+        """指定时间模式：时间戳到达且未触发过。"""
+        at_ts = sched.get("at", 0)
+        return bool(at_ts and last < at_ts and now.timestamp() * 1000 >= at_ts)
+
+    def _check_every(self, sched: dict, last: float, now: datetime) -> bool:
+        """间隔模式：距离上次触发超过间隔。"""
+        interval = sched.get("every_ms", 0)
+        if interval <= 0:
+            return False
+        return last == 0 or (now.timestamp() * 1000 - last) >= interval
+
+    def _check_cron(self, sched: dict, last: float, now: datetime) -> bool:
+        """Cron 模式：表达式匹配当前分钟。"""
+        expr = sched.get("expr", "")
+        if not expr:
+            return False
+        try:
+            base = datetime(now.year, now.month, now.day, now.hour, now.minute)
+            return bool(croniter.match(expr, base) and last < base.timestamp())
+        except Exception:
+            return False
 
     async def _fire_task(self, tid: str) -> None:
         task = self._tasks.get(tid)
