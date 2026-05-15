@@ -274,6 +274,9 @@ class EventBus:
                         tool_msg = {"role": "tool", "content": str(payload)}
                         if ctx._last_tool_call_ids:
                             tool_msg["tool_call_id"] = ctx._last_tool_call_ids.pop(0)
+                        else:
+                            tid = payload.get("tool_call_id") if isinstance(payload, dict) else ""
+                            tool_msg["tool_call_id"] = tid or "call_unknown"
                         await ctx.append(tool_msg)
 
                 # 有未完成的 tool_calls 时暂缓触发 LLM
@@ -311,6 +314,7 @@ class EventBus:
                 except Exception as e:
                     logger.error("LLM loop crashed: %s", e)
                     logger.exception(e)
+            else:
                 await self._route_to_handlers(event)
 
         self._session_queues.pop(session_id, None)

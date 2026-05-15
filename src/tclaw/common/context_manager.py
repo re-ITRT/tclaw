@@ -250,6 +250,16 @@ class ContextManager:
             tool_msg = {"role": "tool", "content": str(tool_result)}
             if self._last_tool_call_ids:
                 tool_msg["tool_call_id"] = self._last_tool_call_ids.pop(0)
+            else:
+                # 保底：从 tool_result 中提取 tool_call_id
+                tid = ""
+                if isinstance(tool_result, dict):
+                    tid = tool_result.get("tool_call_id", "")
+                if not tid:
+                    tid = tool_result.get("id", "") if isinstance(tool_result, dict) else ""
+                if not tid:
+                    tid = "call_unknown"
+                tool_msg["tool_call_id"] = tid
             ctx.messages.append(tool_msg)
 
         if tool_specs:

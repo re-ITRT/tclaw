@@ -40,5 +40,6 @@ class WriteTool(Tool):
         except Exception as e:
             await self._result(payload, {"status": "error", "error": str(e)})
 
-    async def _result(self, _, payload):
-        await self.reply_to_llm(payload, payload.get("session_id", ""))
+    async def _result(self, args, payload):
+        sid = args.get("session_id", "") if isinstance(args, dict) else ""
+        await self.reply_to_llm(payload, sid)

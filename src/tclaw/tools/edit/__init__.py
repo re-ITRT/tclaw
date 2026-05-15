@@ -72,5 +72,6 @@ class EditTool(Tool):
         msg = f"Successfully replaced {len(edits)} block(s) in {path}." if len(edits) > 1 else f"Successfully replaced text in {path}."
         await self._result(payload, {"status": "done", "path": ap, "edits_applied": len(edits), "message": msg})
 
-    async def _result(self, _, payload):
-        await self.reply_to_llm(payload, payload.get("session_id", ""))
+    async def _result(self, args, payload):
+        sid = args.get("session_id", "") if isinstance(args, dict) else ""
+        await self.reply_to_llm(payload, sid)

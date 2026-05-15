@@ -57,6 +57,7 @@ class LLMClient:
         final_tool_calls: list[dict] = []
         final_tool_call_id: str = ""
         final_assistant_msg: dict | None = None
+        msg = None
         current_msgs = list(messages)
         usage = None
 
@@ -79,6 +80,21 @@ class LLMClient:
                     if last.get("role") == "tool":
                         logger.debug("  tool_call_id=%s", last.get("tool_call_id", "(missing)"))
                 response = await self._client.chat.completions.create(**kwargs)
+                # 提取用量（含缓存命中）
+                _u = getattr(response, "usage", None)
+                if _u:
+                    try:
+                        _pd = getattr(_u, "prompt_tokens_details", None)
+                        cached = _pd.cached_tokens if _pd and hasattr(_pd, "cached_tokens") else 0
+                        usage = {
+                            "prompt": _u.prompt_tokens,
+                            "completion": _u.completion_tokens,
+                            "cached": cached or 0,
+                        }
+                    except Exception:
+                        usage = None
+                else:
+                    usage = None
             except Exception as e:
                 logger.error("LLM API call failed: %s", e)
                 break
@@ -143,12 +159,18 @@ class LLMClient:
             # 正常结束
             break
 
-        # 纯文本回复且无 assistant_message 时（无 tool_call），也构建一个
+        if not final_assistant_msg:
+            text_content = "".join(all_text_parts) if all_text_parts else ""
+            if not text_content:
+                text_content = "(抱歉，我遇到了错误，请重试)"
+            final_assistant_msg = {"role": "assistant", "content": text_content}
+            if msg is not None and hasattr(msg, "reasoning_content") and getattr(msg, "reasoning_content"):
+                final_assistant_msg["reasoning_content"] = msg.reasoning_content
         if not final_assistant_msg:
             text_content = "".join(all_text_parts)
             final_assistant_msg = {"role": "assistant", "content": text_content}
             # reasoning 模型也可能在纯文本回复时带 reasoning_content
-            if hasattr(msg, "reasoning_content") and msg.reasoning_content:
+            if msg is not None and hasattr(msg, "reasoning_content") and getattr(msg, "reasoning_content"):
                 final_assistant_msg["reasoning_content"] = msg.reasoning_content
 
         return LLMResponse(

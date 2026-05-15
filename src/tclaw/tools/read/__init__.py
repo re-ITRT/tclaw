@@ -42,7 +42,7 @@ class ReadTool(Tool):
             return await self._handle_image(payload, ap)
         await self._handle_text(payload, ap, offset, limit)
 
-    async def _handle_text(self, args, path, offset, limit):
+    async def _handle_text(self, payload, path, offset, limit):
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
@@ -68,7 +68,7 @@ class ReadTool(Tool):
                                     "text": text, "total_lines": total,
                                     "lines_shown": end - start, "offset": offset})
 
-    async def _handle_image(self, args, path):
+    async def _handle_image(self, payload, path):
         import base64
         mime = mimetypes.guess_type(path)[0] or "image/png"
         try:
@@ -79,5 +79,6 @@ class ReadTool(Tool):
         await self._result(payload, {"status": "done", "path": path,
                                     "type": "image", "mime_type": mime, "data": data})
 
-    async def _result(self, _, payload):
-        await self.reply_to_llm(payload, payload.get("session_id", ""))
+    async def _result(self, args, payload):
+        sid = args.get("session_id", "") if isinstance(args, dict) else ""
+        await self.reply_to_llm(payload, sid)

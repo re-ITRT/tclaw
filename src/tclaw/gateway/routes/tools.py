@@ -46,10 +46,11 @@ def register(app, gateway):
             return {"usage": usage.get(session_id, {})}
         total_prompt = sum(u.get("prompt", 0) for u in usage.values())
         total_completion = sum(u.get("completion", 0) for u in usage.values())
+        total_cached = sum(u.get("cached", 0) for u in usage.values())
         total_calls = sum(u.get("calls", 0) for u in usage.values())
         return {
             "usage": usage,
-            "total": {"prompt": total_prompt, "completion": total_completion, "calls": total_calls},
+            "total": {"prompt": total_prompt, "completion": total_completion, "cached": total_cached, "calls": total_calls},
         }
     async def api_settings():
         """当前配置（不含密钥）。"""
