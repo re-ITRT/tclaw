@@ -23,3 +23,8 @@ workspace/logs/
 .env
 .env.local
 workspace/memory/index.db
+
+# Sub workspaces (user data)
+workspace/sub_workspaces/
+workspace/.scheduler.json
+workspace/memory/key-exchange.md

@@ -69,6 +69,10 @@ class QuizTool(Tool):
             # blocking：等用户选完再继续
             result = await self.wait_for_component(cid)
             if result.get("event") == "dismiss":
+                ctx = self._bus._get_context_mgr(payload.get("session_id", ""))
+                if ctx:
+                    ctx.add_to_prelude("system",
+                        "## 用户选择题结果\n\n用户关闭了选择题，未做选择。")
                 await self.reply_to_llm({
                     "dismissed": True, "question": question,
                 }, payload.get("session_id", ""))
@@ -97,6 +101,19 @@ class QuizTool(Tool):
 
         if event_type == "dismiss":
             await self.destroy_component(component_id)
+            # 关闭也算一个选择结果，通知 LLM
+            ctx = self._bus._get_context_mgr(session_id)
+            if ctx:
+                ctx.add_to_prelude("system",
+                    "## 用户选择题结果\n\n用户关闭了选择题，未做选择。")
+            await self.publish({
+                "topic": Topics.AGENT_MESSAGE_INCOMING,
+                "payload": {
+                    "text": "[用户取消了选择]",
+                    "from_session_id": session_id,
+                },
+                "session_id": session_id,
+            })
             return
 
         # 把选择结果注入上下文

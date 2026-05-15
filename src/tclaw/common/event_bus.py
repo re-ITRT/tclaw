@@ -200,7 +200,37 @@ class EventBus:
         sched = self._tools.get("scheduler")
         if sched:
             await sched.start_loop()
+        # 启动时清理所有 session 的悬空 tool_calls
+        self._cleanup_stale_tool_calls()
         logger.info("event bus started")
+
+    def _cleanup_stale_tool_calls(self) -> None:
+        """清理所有 session 中悬空的 tool_calls（无对应 tool 结果）。"""
+        import json, os
+        from .settings import SESSION_DIR
+        if not os.path.isdir(SESSION_DIR):
+            return
+        for fname in os.listdir(SESSION_DIR):
+            if not fname.endswith(".json"):
+                continue
+            path = os.path.join(SESSION_DIR, fname)
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                history = data.get("history", [])
+                if not history:
+                    continue
+                # 最后一条是 assistant 且带 tool_calls → 悬空，移除
+                last = history[-1]
+                if last.get("role") == "assistant" and last.get("tool_calls"):
+                    removed = history.pop()
+                    data["history"] = history
+                    with open(path, "w") as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    logger.info("cleaned stale tool_call from %s: %s", fname,
+                               [tc["function"]["name"] for tc in removed.get("tool_calls", [])])
+            except Exception as e:
+                logger.debug("skipped %s: %s", fname, e)
 
     async def stop(self) -> None:
         self._running = False
@@ -262,7 +292,15 @@ class EventBus:
                     if pending > 0:
                         if topic == Topics.AGENT_MESSAGE_INCOMING:
                             await queue.put(event)
-                            logger.info("deferred: %d pending tool_calls", pending)
+                            logger.info("deferred: %d pending tool_calls (session=%s, history=%d msgs)", 
+                                       pending, session_id, len(ctx.history))
+                            # 记录最后几条消息用于调试
+                            for _m in ctx.history[-3:]:
+                                _r = _m.get("role","?")
+                                _tc = len(_m.get("tool_calls", [])) if _m.get("tool_calls") else 0
+                                logger.debug("  last msg: role=%s tc=%d content=%s", 
+                                           _r, _tc, str(_m.get("content",""))[:40])
+                            await asyncio.sleep(0.5)  # 避免紧循环
                         else:
                             logger.debug("tool result queued, %d still pending", pending)
                         continue

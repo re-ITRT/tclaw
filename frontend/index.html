@@ -33,6 +33,9 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
 .msg.assistant blockquote { border-left: 3px solid #e0e0e0; margin: 8px 0; padding: 4px 12px; color: #666; }
 .msg.tool { background: #fff3e0; color: #e65100; align-self: flex-start; font-size: 13px; white-space: pre-wrap; }
 .msg.system { background: #e8f5e9; color: #2e7d32; align-self: center; font-size: 12px; }
+.tool-card { max-width: 100%; }
+.tool-card .tc-arrow { transition: transform 0.2s; display:inline-block; }
+.tool-card.expanded .tc-arrow { transform: rotate(90deg); }
 
 /* ── 组件浮动窗口 ── */
 .component-box { background: #fff; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); min-width: 360px; max-width: 600px; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
@@ -93,11 +96,19 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
 <!-- 侧边栏 -->
 <div id="sidebar" style="width:200px;background:#1a1a2e;color:#ccc;display:flex;flex-direction:column;flex-shrink:0">
   <div style="padding:16px;font-weight:700;font-size:16px;color:#fff;border-bottom:1px solid #333">tclaw</div>
-  <div id="nav-chat" class="nav-item active" onclick="switchTab('chat')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">💬 聊天</div>
+  <!-- 聊天（可展开，内置 session 列表） -->
+  <div>
+    <div id="nav-chat" class="nav-item active" onclick="toggleChatSessions()" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent;user-select:none">
+      <span style="flex:1">💬 聊天</span>
+      <span id="chatArrow" style="font-size:10px;transition:transform 0.2s">▾</span>
+    </div>
+    <div id="chatSessionList" style="display:none;background:rgba(0,0,0,0.15);padding:4px 0"></div>
+  </div>
   <div id="nav-sessions" class="nav-item" onclick="switchTab('sessions')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">📂 会话</div>
   <div id="nav-skills" class="nav-item" onclick="switchTab('skills')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">🧠 Skills</div>
   <div id="nav-tools" class="nav-item" onclick="switchTab('tools')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">🛠 Tools</div>
   <div id="nav-extensions" class="nav-item" onclick="switchTab('extensions')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">🔌 Extensions</div>
+  <div id="nav-scheduler" class="nav-item" onclick="switchTab('scheduler')" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;border-left:3px solid transparent">⏰ 定时任务</div>
   <div style="margin-top:auto;padding:10px 16px;border-top:1px solid #333;display:flex;gap:8px">
     <button id="sidebarDisconnect" onclick="disconnect()" style="flex:1;padding:6px;border:1px solid #555;border-radius:4px;cursor:pointer;font-size:12px;background:transparent;color:#aaa">断开</button>
     <button onclick="toggleLog()" style="padding:6px;border:1px solid #555;border-radius:4px;cursor:pointer;font-size:12px;background:transparent;color:#aaa">📋</button>
@@ -109,22 +120,13 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
 
   <!-- 聊天标签 -->
   <div id="tab-chat" class="tab-content" style="display:flex;flex-direction:column;height:100%">
-    <!-- Session 选择栏 -->
-    <div style="padding:8px 16px;background:#fff;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;gap:8px;flex-shrink:0">
-      <select id="sessionSelect" onchange="switchSession(this.value)" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff">
-        <option value="main">main</option>
-      </select>
-      <button id="deleteSessionBtn" onclick="deleteSession()" style="padding:6px 10px;border:1px solid #e57373;border-radius:6px;cursor:pointer;background:#fff;color:#e53935;font-size:13px;display:none">✕</button>
-      <button onclick="createSession()" style="padding:6px 12px;border:1px solid #4caf50;border-radius:6px;cursor:pointer;background:#e8f5e9;color:#2e7d32;font-size:13px;white-space:nowrap">+ 新建</button>
-      <span id="sessionStatus" style="font-size:12px;color:#888;white-space:nowrap"></span>
-    </div>
+    <div id="sessionStatus" style="display:none"></div>
     <div id="chat" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px"></div>
     <!-- 工具面板 -->
     <div id="toolsPanel" style="display:none;padding:12px 16px;border-top:1px solid #e0e0e0;background:#fafafa;flex-direction:column;gap:8px">
       <div style="display:flex;gap:8px;align-items:center">
         <button onclick="resetSession()" style="padding:8px 16px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:13px">↻ 重置会话</button>
         <button onclick="showCompactDialog()" style="padding:8px 16px;border:1px solid #ff9800;border-radius:6px;cursor:pointer;background:#fff;font-size:13px">📦 压缩上下文</button>
-        <button onclick="showScheduler()" style="padding:8px 16px;border:1px solid #2196f3;border-radius:6px;cursor:pointer;background:#e3f2fd;color:#1565c0;font-size:13px">⏰ 定时任务</button>
       </div>
       <!-- 压缩对话框 -->
       <div id="compactDialog" style="display:none;flex-direction:column;gap:6px">
@@ -132,29 +134,6 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button onclick="hideCompactDialog()" style="padding:6px 14px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:12px">取消</button>
           <button onclick="doCompact()" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;background:#ff9800;color:#fff;font-size:12px">📦 执行压缩</button>
-        </div>
-      </div>
-      <!-- 定时任务对话框 -->
-      <div id="schedulerDialog" style="display:none;flex-direction:column;gap:8px;border-top:1px solid #e0e0e0;padding-top:8px">
-        <div style="font-size:13px;font-weight:600;color:#333">⏰ 定时任务</div>
-        <div id="schedulerList" style="font-size:12px;color:#666;display:flex;flex-direction:column;gap:4px"></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <input id="schedName" placeholder="任务名" style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px">
-        </div>
-        <input id="schedMsg" placeholder="消息内容" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box">
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <select id="schedType" onchange="toggleSchedType()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;background:#fff">
-            <option value="at">指定时间</option>
-            <option value="every">每隔</option>
-            <option value="cron">Cron</option>
-          </select>
-          <input id="schedAt" type="datetime-local" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px">
-          <input id="schedEvery" placeholder="毫秒(如 60000)" style="display:none;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;width:120px">
-          <input id="schedCron" placeholder="表达式(如 0 */5 *)" style="display:none;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;width:160px">
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button onclick="document.getElementById('schedulerDialog').style.display='none'" style="padding:6px 14px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:12px">关闭</button>
-          <button onclick="addSchedulerTask()" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;background:#2196f3;color:#fff;font-size:12px">+ 添加任务</button>
         </div>
       </div>
     </div>
@@ -201,6 +180,37 @@ header button { padding: 6px 16px; border: none; border-radius: 4px; cursor: poi
       <p style="margin:4px 0 0;font-size:13px;color:#888">管理工作区与记忆空间</p>
     </div>
     <div id="workspace-list" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- 定时任务标签 -->
+  <div id="tab-scheduler" class="tab-content" style="display:none;flex-direction:column;height:100%">
+    <div style="padding:16px 20px;border-bottom:1px solid #e0e0e0;background:#fff">
+      <h2 style="margin:0;font-size:18px;color:#333">⏰ 定时任务</h2>
+      <p style="margin:4px 0 0;font-size:13px;color:#888">管理定时触发的消息任务</p>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px">
+      <div id="schedulerList" style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#555"></div>
+      <div style="border-top:1px solid #e0e0e0;padding-top:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:8px">
+          <input id="schedName" placeholder="任务名称" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+          <select id="schedTarget" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff">
+            <option value="main">main</option>
+          </select>
+        </div>
+        <input id="schedMsg" placeholder="消息内容" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select id="schedType" onchange="toggleSchedType()" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff">
+            <option value="at">指定时间</option>
+            <option value="every">每隔</option>
+            <option value="cron">Cron 表达式</option>
+          </select>
+          <input id="schedAt" type="datetime-local" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+          <input id="schedEvery" placeholder="毫秒（如 60000=1分钟）" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;flex:1">
+          <input id="schedCron" placeholder="表达式（如 0 */5 * * *）" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;flex:1">
+        </div>
+        <button onclick="addSchedulerTask()" style="padding:10px;border:none;border-radius:6px;cursor:pointer;background:#2196f3;color:#fff;font-size:14px">+ 添加定时任务</button>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -264,6 +274,7 @@ function switchTab(name) {
   else if (name === 'tools') loadTools();
   else if (name === 'extensions') loadExtensions();
   else if (name === 'sessions') loadSessions();
+  else if (name === 'scheduler') loadSchedulerTasks();
 }
 
 function loadSkills() {
@@ -439,6 +450,7 @@ function connectToWorkspace(session_id) {
   if (ws) { ws.close(); ws = null; }
   sessionId = session_id;
   connectTo(session_id);
+  switchTab('chat');
 }
 
 function forkWorkspace(source) {
@@ -481,8 +493,9 @@ function connect() {
     document.getElementById('msgInput').disabled = false;
     document.getElementById('sendBtn').disabled = false;
     document.getElementById('sessionStatus').textContent = '';
+    document.getElementById('chat').innerHTML = '';
     addMsg('system', '已连接: ' + sessionId);
-    refreshSessionList();
+    refreshChatSessionList();
   };
   ws.onclose = function() {
     if (_switching) { _switching = false; return; }
@@ -499,9 +512,8 @@ function connect() {
 function switchSession(sid) {
   if (!sid || sid === sessionId) return;
   sessionId = sid;
-  document.getElementById('sessionSelect').value = sid;
-  document.getElementById('deleteSessionBtn').style.display = (sid !== 'main') ? 'inline-block' : 'none';
   document.getElementById('sessionStatus').textContent = '切换中...';
+  document.getElementById('chat').innerHTML = '';
   _switching = true;
   if (ws) { ws.close(); ws = null; }
   connectTo(sid);
@@ -527,14 +539,15 @@ function connectTo(sid) {
     document.getElementById('sessionStatus').textContent = '';
     document.getElementById('msgInput').disabled = false;
     document.getElementById('sendBtn').disabled = false;
+    document.getElementById('chat').innerHTML = '';
     addMsg('system', '已连接: ' + sid);
-    refreshSessionList();
+    refreshChatSessionList();
   };
   ws.onclose = function() {
     document.getElementById('msgInput').disabled = true;
     document.getElementById('sendBtn').disabled = true;
     addMsg('system', '已断开: ' + sid);
-    refreshSessionList();
+    refreshChatSessionList();
   };
   ws.onerror = function() {
     document.getElementById('sessionStatus').textContent = '连接失败';
@@ -697,11 +710,18 @@ function destroyComponent(cid) {
 // ── 工具卡片 ─────────────────────────────────────────────
 function renderToolStart(msg) {
   var args = msg.args || {};
-  var argsStr = JSON.stringify(args).slice(0, 200);
-  addMsg('tool',
-    '<div style="padding:4px 8px;background:#f0f7ff;border:1px solid #d0e3f7;border-radius:4px;font-size:12px;line-height:1.4">' +
-    '\u25b6 ' + (msg.tool_id || '?') + ' ' + (argsStr !== '{}' ? argsStr.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '') +
-    '</div>', true);
+  var argsStr = JSON.stringify(args).slice(0, 500);
+  var tid = msg.tool_id || '?';
+  var safeArgs = argsStr !== '{}' ? argsStr.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+  var html = '<div class="tool-card" style="background:#fff;border:1px solid #d0e3f7;border-radius:6px;overflow:hidden;font-size:12px">' +
+    '<div onclick="this.parentElement.classList.toggle(\'expanded\');var b=this.nextElementSibling;b.style.display=b.style.display===\'block\'?\'none\':\'block\';this.querySelector(\'.tc-arrow\').style.transform=this.parentElement.classList.contains(\'expanded\')?\'rotate(90deg)\':\'rotate(0deg)\'" style="padding:6px 10px;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none">' +
+    '<span class="tc-arrow" style="font-size:10px;transition:transform 0.2s;color:#888">\u25b6</span>' +
+    '<span style="font-weight:600;color:#1565c0">' + tid + '</span>' +
+    (safeArgs ? '<span style="color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + safeArgs.slice(0, 60) + '</span>' : '') +
+    '</div>' +
+    (safeArgs ? '<div class="tc-body" style="display:none;padding:6px 10px 8px 26px;border-top:1px solid #eee;color:#555;white-space:pre-wrap;word-break:break-all">' + safeArgs + '</div>' : '') +
+    '</div>';
+  addMsg('tool', html, true);
 }
 
 function renderToolResult(msg) {
@@ -751,41 +771,25 @@ function toggleAutoScroll() {
 
 // ── 会话列表 ────────────────────────────────────────────
 function refreshSessionList() {
-  fetch('/api/workspaces').then(function(r) { return r.json(); }).then(function(data) {
-    var sel = document.getElementById('sessionSelect');
-    var current = sel.value;
-    sel.innerHTML = '';
-    var sessions = data.workspaces ? data.workspaces.filter(function(w) { return (w.kind === 'session' || w.kind === 'fork'); }) : [];
-    sessions.forEach(function(s) {
-      var o = document.createElement('option');
-      o.value = s.id; o.textContent = s.label + (s.id === 'main' ? '' : ' (sub)');
-      sel.appendChild(o);
-    });
-    // 恢复当前选中
-    if (current && document.querySelector('#sessionSelect option[value="' + current + '"]')) {
-      sel.value = current;
-    }
-    // 更新删除按钮可见性（main 不可删）
-    var delBtn = document.getElementById('deleteSessionBtn');
-    delBtn.style.display = (sel.value && sel.value !== 'main') ? 'inline-block' : 'none';
-  }).catch(function() {});
+  if (document.getElementById('chatSessionList').style.display !== 'none') {
+    refreshChatSessionList();
+  }
 }
 
-function deleteSession() {
-  var sid = document.getElementById('sessionSelect').value;
+function deleteSession(sid) {
+  if (!sid && sessionId && sessionId !== 'main') sid = sessionId;
   if (!sid || sid === 'main') { alert('main 会话不可删除'); return; }
   if (!confirm('确定删除会话 "' + sid + '"？所有聊天记录将丢失。')) return;
   fetch('/api/workspaces/' + encodeURIComponent(sid), { method: 'DELETE' }).then(function(r) {
     return r.json();
   }).then(function() {
-    // 如果删的是当前 session，切回 main
     if (sid === sessionId) {
       _switching = true;
       if (ws) { ws.close(); ws = null; }
       sessionId = 'main';
       connectTo('main');
     }
-    refreshSessionList();
+    refreshChatSessionList();
   }).catch(function() { alert('删除失败'); });
 }
 
@@ -794,6 +798,45 @@ function resetSession() {
   ws.send(JSON.stringify({type: "reset"}));
   document.getElementById("chat").innerHTML = "";
   addMsg("system", "\u4f1a\u8bdd\u5df2\u91cd\u7f6e");
+}
+
+function toggleChatSessions() {
+  var list = document.getElementById('chatSessionList');
+  var arrow = document.getElementById('chatArrow');
+  if (list.style.display === 'none') {
+    list.style.display = 'block';
+    arrow.style.transform = 'rotate(180deg)';
+    refreshChatSessionList();
+    switchTab('chat');
+  } else {
+    list.style.display = 'none';
+    arrow.style.transform = 'rotate(0deg)';
+  }
+}
+
+function refreshChatSessionList() {
+  fetch('/api/workspaces').then(function(r) { return r.json(); }).then(function(data) {
+    var el = document.getElementById('chatSessionList');
+    var sessions = data.workspaces ? data.workspaces.filter(function(w) { return (w.kind === 'session' || w.kind === 'fork'); }) : [];
+    var mainSess = sessions.filter(function(s) { return s.id === 'main'; });
+    var otherSess = sessions.filter(function(s) { return s.id !== 'main'; });
+    var html = '';
+    // main 区块（不同背景隔离）
+    mainSess.forEach(function(s) {
+      var active = (s.id === sessionId) ? 'background:rgba(33,150,243,0.25);border-left:3px solid #2196f3;color:#fff;font-weight:700' : 'background:rgba(255,255,255,0.08);color:#ddd;font-weight:700';
+      html += '<div onclick="connectToWorkspace(\'' + s.id + '\')\" style="padding:8px 16px 8px 32px;cursor:pointer;font-size:13px;' + active + ';transition:all 0.15s" title="\u5207\u6362\u5230 ' + s.label + '">' + s.label + '</div>';
+    });
+    // 分割线
+    if (otherSess.length > 0) {
+      html += '<div style="height:1px;background:rgba(255,255,255,0.1);margin:4px 12px"></div>';
+    }
+    // 其他 session
+    otherSess.forEach(function(s) {
+      var active = (s.id === sessionId) ? 'background:rgba(33,150,243,0.2);border-left:3px solid #2196f3;color:#fff' : 'color:#888';
+      html += '<div onclick="connectToWorkspace(\'' + s.id + '\')\" style="padding:8px 16px 8px 32px;cursor:pointer;font-size:13px;' + active + ';transition:all 0.15s" onmouseover="this.style.background=\'rgba(255,255,255,0.05)\'" onmouseout="this.style.background=\'\'" title="\u5207\u6362\u5230 ' + s.label + '">' + s.label + '</div>';
+    });
+    el.innerHTML = html;
+  }).catch(function() {});
 }
 
 function toggleTools() {
@@ -823,10 +866,18 @@ function doCompact() {
 }
 
 // ── \u5b9a\u65f6\u4efb\u52a1 ──────────────────────────────────────────
-function showScheduler() {
-  document.getElementById('schedulerDialog').style.display = 'flex';
+function loadSchedulerTasks() {
   refreshSchedulerList();
-
+  // 填充 session 下拉
+  fetch('/api/workspaces').then(function(r) { return r.json(); }).then(function(d) {
+    var sel = document.getElementById('schedTarget');
+    sel.innerHTML = '';
+    (d.workspaces || []).filter(function(w) { return w.kind === 'session' || w.kind === 'fork'; }).forEach(function(w) {
+      var o = document.createElement('option');
+      o.value = w.id; o.textContent = w.label;
+      sel.appendChild(o);
+    });
+  }).catch(function() {});
 }
 
 function toggleSchedType() {

@@ -43,3 +43,12 @@ class OutputTool(Tool):
             return
 
         await self.reply_to_llm({"status": "done", "mode": mode}, sid)
+
+    async def _on_invoke(self, event: dict) -> None:
+        """Output 工具的 tool_start/tool_result 不推前端，避免冗余。"""
+        payload = event.get("payload", {})
+        sid = payload.get("session_id") or event.get("session_id", "")
+        if not payload.get("session_id"):
+            payload["session_id"] = sid
+        # 直接走 execute 管道，跳过 _on_invoke 的 tool_start/tool_result
+        await self.execute(payload)
